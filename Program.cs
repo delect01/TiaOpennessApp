@@ -1,105 +1,249 @@
 using System;
 using System.IO;
-using System.Linq;
-using System.Reflection;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
-using Siemens.Engineering;
-using Siemens.Engineering.HW;
+using TiaOpennessApp.Models;
+using TiaOpennessApp.Services;
 
 namespace TiaOpennessApp
 {
     class Program
     {
-        private static readonly string TiaPublicApiPath =
-            @"C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48";
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        };
+
+        private static readonly Lazy<IConfigurationRoot> Config = new(() =>
+            new ConfigurationBuilder()
+                .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false)
+                .Build());
+
+        private static IConfigurationRoot AppConfig => Config.Value;
 
         static void Main(string[] args)
         {
-            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+            Console.WriteLine("╔══════════════════════════════════════════════╗");
+            Console.WriteLine("║   TIA Portal Openness - Engineering Tool     ║");
+            Console.WriteLine("║            V21 - .NET 4.8                    ║");
+            Console.WriteLine("╚══════════════════════════════════════════════╝");
+            Console.WriteLine();
 
-            Console.WriteLine("TIA Portal Openness - Base Application");
-            Console.WriteLine("======================================");
-
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .Build();
-
-            string projectPath = configuration["TiaPortal:ProjectPath"]
-                ?? throw new InvalidOperationException("ProjectPath not configured in appsettings.json");
-
-            if (!File.Exists(projectPath))
-            {
-                Console.WriteLine($"Error: Project file not found: {projectPath}");
-                Console.WriteLine("Please check appsettings.json configuration.");
-                return;
-            }
-
-            TiaPortal? portal = null;
-            Project? project = null;
+            using var connection = new TiaConnection();
 
             try
             {
-                Console.WriteLine($"Opening project: {projectPath}");
+                Console.WriteLine("Connecting to TIA Portal...");
+                connection.ConnectWithUi();
+                Console.WriteLine("Connected.\n");
 
-                // Try to attach to running TIA Portal or create new instance
-                portal = new TiaPortal(TiaPortalMode.WithUserInterface);
+                Console.Write("Project path [Enter = appsettings.json]: ");
+                string? inputPath = Console.ReadLine()?.Trim();
+                string projectPath;
 
-                Console.WriteLine("Connected to TIA Portal");
-
-                FileInfo projectFile = new FileInfo(projectPath);
-                project = portal.Projects.Open(projectFile);
-
-                Console.WriteLine($"Project opened: {project.Name}");
-
-                Console.WriteLine("\nDevices in project:");
-                Console.WriteLine("-------------------");
-
-                foreach (Device device in project.Devices)
+                if (string.IsNullOrEmpty(inputPath))
                 {
-                    Console.WriteLine($"  - {device.Name}");
-
-                    foreach (DeviceItem item in device.DeviceItems)
-                    {
-                        Console.WriteLine($"    └─ {item.Name}");
-                    }
+                    projectPath = AppConfig["TiaPortal:ProjectPath"]
+                        ?? throw new InvalidOperationException("ProjectPath not configured.");
+                    Console.WriteLine($"Using configured path: {projectPath}");
+                }
+                else
+                {
+                    projectPath = inputPath!;
                 }
 
-                Console.WriteLine("\nOperation completed successfully.");
+                Console.WriteLine("Opening project (read-only)...");
+                connection.OpenProject(projectPath);
+                Console.WriteLine("Project opened.\n");
+
+                bool running = true;
+                while (running)
+                {
+                    PrintMenu();
+                    string? choice = Console.ReadLine()?.Trim();
+
+                    switch (choice)
+                    {
+                        case "1":
+                            ShowProjectInfo(connection);
+                            break;
+                        case "2":
+                            ListDevices(connection);
+                            break;
+                        case "3":
+                            ExportHardwareJson(connection);
+                            break;
+                        case "0":
+                            running = false;
+                            break;
+                        default:
+                            Console.WriteLine("Invalid option.");
+                            break;
+                    }
+
+                    if (running)
+                    {
+                        Console.WriteLine("\nPress any key to continue...");
+                        Console.ReadKey(true);
+                        Console.Clear();
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"\nError: {ex.Message}");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\nERROR: {ex.Message}");
                 if (ex.InnerException != null)
-                {
-                    Console.WriteLine($"Inner: {ex.InnerException.Message}");
-                }
+                    Console.WriteLine($"  Inner: {ex.InnerException.Message}");
+                Console.ResetColor();
             }
             finally
             {
-                if (project != null)
-                {
-                    project.Close();
-                }
-
-                if (portal != null)
-                {
-                    portal.Dispose();
-                }
-
-                Console.WriteLine("\nPress any key to exit...");
-                Console.ReadKey();
+                Console.WriteLine("\nClosing project...");
             }
+
+            Console.WriteLine("Done. Press any key to exit.");
+            Console.ReadKey(true);
         }
-        private static Assembly? OnAssemblyResolve(object sender, ResolveEventArgs args)
+
+        private static void PrintMenu()
         {
-            var assemblyName = new AssemblyName(args.Name);
-            string dllPath = Path.Combine(TiaPublicApiPath, assemblyName.Name + ".dll");
-            if (File.Exists(dllPath))
-            {
-                return Assembly.LoadFrom(dllPath);
-            }
-            return null;
+            Console.WriteLine("┌─────────────────────────────────┐");
+            Console.WriteLine("│         MAIN MENU               │");
+            Console.WriteLine("├─────────────────────────────────┤");
+            Console.WriteLine("│  1. Project Info                │");
+            Console.WriteLine("│  2. List Devices & HW Tree      │");
+            Console.WriteLine("│  3. Export Hardware → JSON      │");
+            Console.WriteLine("│  0. Exit                        │");
+            Console.WriteLine("└─────────────────────────────────┘");
+            Console.Write("Select: ");
+        }
+
+        private static void ShowProjectInfo(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ PROJECT INFO ═══");
+            var svc = new ProjectService(connection);
+            svc.PrintProjectInfo();
+        }
+
+        private static void ListDevices(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ DEVICES & NETWORKS ═══\n");
+            var svc = new HardwareService(connection);
+            svc.PrintDeviceTree();
+        }
+
+        private static void ExportHardwareJson(TiaConnection connection)
+        {
+            string outputPath = GetOutputPathOrPrompt("hardware_export.json", "Output file path");
+            Console.WriteLine("Extracting hardware...");
+            var svc = new HardwareService(connection);
+            var report = svc.ExportFullHardware();
+
+            string json = JsonSerializer.Serialize(report, JsonOptions);
+            WriteFile(outputPath, json);
+
+            Console.WriteLine($"Exported {report.DeviceCount} devices to: {outputPath}");
+        }
+
+        private static void ListBlocks(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ PLC BLOCKS ═══\n");
+            var svc = new BlockService(connection);
+            svc.PrintBlockList();
+        }
+
+        private static void ExportBlocksJson(TiaConnection connection)
+        {
+            string outputPath = GetOutputPathOrPrompt("blocks_export.json", "Output file path");
+            Console.WriteLine("Extracting blocks...");
+            var svc = new BlockService(connection);
+            var report = svc.ExportAllBlocks();
+
+            string json = JsonSerializer.Serialize(report, JsonOptions);
+            WriteFile(outputPath, json);
+
+            Console.WriteLine($"Exported {report.BlockCount} blocks to: {outputPath}");
+        }
+
+        private static void ExportBlocksToXml(TiaConnection connection)
+        {
+            string outputDir = GetOutputPathOrPrompt("blocks_export", "Output directory");
+            if (!Directory.Exists(outputDir))
+                Directory.CreateDirectory(outputDir);
+
+            Console.WriteLine("Exporting blocks to XML...");
+            var svc = new BlockService(connection);
+            svc.ExportAllBlocksToDirectory(outputDir!);
+            Console.WriteLine("Block export complete.");
+        }
+
+        private static void ShowDevicesAndNetworks(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ DEVICES & NETWORKS ═══\n");
+            var svc = new DevicesAndNetworksService(connection);
+            svc.PrintDevicesAndNetworks();
+
+            Console.WriteLine();
+            var ioChannels = new IoChannelService(connection);
+            ioChannels.PrintIoChannels();
+        }
+
+        private static void ExportIoChannelsXml(TiaConnection connection)
+        {
+            string outputPath = GetOutputPathOrPrompt("io_channels.xml", "Output file path");
+            Console.WriteLine("Extracting I/O channels...");
+            var svc = new IoChannelService(connection);
+            svc.ExportToXml(outputPath);
+        }
+
+        private static void ExportDevicesAndNetworksJson(TiaConnection connection)
+        {
+            string outputPath = GetOutputPathOrPrompt("devices_and_networks.json", "Output file path");
+            Console.WriteLine("Extracting devices...");
+            var svc = new DevicesAndNetworksService(connection);
+            var report = svc.ExportAll(includeSubnets: false);
+
+            string json = JsonSerializer.Serialize(report, JsonOptions);
+            WriteFile(outputPath, json);
+
+            Console.WriteLine($"Exported {report.DeviceCount} devices to: {outputPath}");
+        }
+
+        private static string GetOutputPathOrPrompt(string defaultFileName, string label)
+        {
+            string configured = GetOutputPath(defaultFileName);
+            if (!string.IsNullOrEmpty(configured))
+                return configured;
+
+            Console.Write($"{label} [{defaultFileName}]: ");
+            string? input = Console.ReadLine()?.Trim();
+            return string.IsNullOrEmpty(input) ? defaultFileName : input!;
+        }
+
+        private static string GetOutputPath(string defaultFileName)
+        {
+            string? configured = AppConfig["TiaPortal:OutputPath"];
+            if (string.IsNullOrWhiteSpace(configured))
+                return string.Empty;
+
+            string path = configured!;
+            bool isDirectory = Directory.Exists(path)
+                || path.EndsWith("\\") || path.EndsWith("/")
+                || string.IsNullOrEmpty(Path.GetExtension(path));
+
+            return isDirectory ? Path.Combine(path, defaultFileName)! : path;
+        }
+
+        private static void WriteFile(string path, string content)
+        {
+            string? directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            File.WriteAllText(path, content);
         }
     }
 }
