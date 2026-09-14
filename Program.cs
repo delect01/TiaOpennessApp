@@ -35,14 +35,31 @@ namespace TiaOpennessApp
 
             try
             {
-                string mode = (AppConfig["TiaPortal:Mode"] ?? "WithUserInterface").ToLowerInvariant();
-                bool headless = mode.Contains("without") || mode.Contains("headless") || mode.Contains("no");
+                string mode = (AppConfig["TiaPortal:Mode"] ?? "Auto").ToLowerInvariant();
+                bool forceHeadless = mode.Contains("without") || mode.Contains("headless") || mode.Contains("no");
+                bool forceWithUi = mode.Contains("with") || mode.Contains("ui");
 
-                Console.WriteLine($"Connecting to TIA Portal ({(headless ? "headless" : "with UI")})...");
-                if (headless)
+                if (forceHeadless)
+                {
+                    Console.WriteLine("Connecting to TIA Portal headless (no GUI)...");
                     connection.ConnectHeadless();
-                else
+                }
+                else if (forceWithUi)
+                {
+                    Console.WriteLine("Connecting to TIA Portal with user interface...");
                     connection.ConnectWithUi();
+                }
+                else
+                {
+                    Console.WriteLine("Connecting to TIA Portal (auto)...");
+                    connection.ConnectAuto();
+                }
+
+                if (connection.AttachedToExisting)
+                    Console.WriteLine("TIA Portal was already open -> attached. It will stay open after the tasks.");
+                else
+                    Console.WriteLine("TIA Portal was not open -> started headless (no GUI).");
+
                 Console.WriteLine("Connected.\n");
 
                 Console.Write("Project path [Enter = appsettings.json]: ");
@@ -113,7 +130,10 @@ namespace TiaOpennessApp
             }
             finally
             {
-                Console.WriteLine("\nClosing project...");
+                if (connection.AttachedToExisting)
+                    Console.WriteLine("\nAttached TIA Portal left open (same state as found).");
+                else
+                    Console.WriteLine("\nClosing headless TIA Portal instance...");
             }
 
             Console.WriteLine("Done. Press any key to exit.");
@@ -126,7 +146,7 @@ namespace TiaOpennessApp
             Console.WriteLine("│         MAIN MENU                │");
             Console.WriteLine("├──────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                 │");
-            Console.WriteLine("│  2. List Devices & HW Tree       │");
+            Console.WriteLine("│  2. List Devices & HW Tree       │"); 
             Console.WriteLine("│  3. Export Hardware → JSON       │");
             Console.WriteLine("│  4. Network Devices Tree         │");
             Console.WriteLine("│  5. Export Network Devices → JSON│");
