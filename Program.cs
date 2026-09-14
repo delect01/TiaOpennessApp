@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
-using TiaOpennessApp.Models;
 using TiaOpennessApp.Services;
 
 namespace TiaOpennessApp
@@ -93,15 +92,9 @@ namespace TiaOpennessApp
                             ShowProjectInfo(connection);
                             break;
                         case "2":
-                            ListDevices(connection);
-                            break;
-                        case "3":
-                            ExportHardwareJson(connection);
-                            break;
-                        case "4":
                             ShowNetworkTree(connection);
                             break;
-                        case "5":
+                        case "3":
                             ExportNetworkJson(connection);
                             break;
                         case "0":
@@ -146,10 +139,8 @@ namespace TiaOpennessApp
             Console.WriteLine("│         MAIN MENU                │");
             Console.WriteLine("├──────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                 │");
-            Console.WriteLine("│  2. List Devices & HW Tree       │"); 
-            Console.WriteLine("│  3. Export Hardware → JSON       │");
-            Console.WriteLine("│  4. Network Devices Tree         │");
-            Console.WriteLine("│  5. Export Network Devices → JSON│");
+            Console.WriteLine("│  2. Network Devices Tree         │");
+            Console.WriteLine("│  3. Export Network Devices → JSON│");
             Console.WriteLine("│  0. Exit                         │");
             Console.WriteLine("└──────────────────────────────────┘");
             Console.Write("Select: ");
@@ -160,26 +151,6 @@ namespace TiaOpennessApp
             Console.WriteLine("\n═══ PROJECT INFO ═══");
             var svc = new ProjectService(connection);
             svc.PrintProjectInfo();
-        }
-
-        private static void ListDevices(TiaConnection connection)
-        {
-            Console.WriteLine("\n═══ DEVICES & NETWORKS ═══\n");
-            var svc = new HardwareService(connection);
-            svc.PrintDeviceTree();
-        }
-
-        private static void ExportHardwareJson(TiaConnection connection)
-        {
-            string outputPath = GetOutputPathOrPrompt("hardware_export.json", "Output file path");
-            Console.WriteLine("Extracting hardware...");
-            var svc = new HardwareService(connection);
-            var report = svc.ExportFullHardware();
-
-            string json = JsonSerializer.Serialize(report, JsonOptions);
-            WriteFile(outputPath, json);
-
-            Console.WriteLine($"Exported {report.DeviceCount} devices to: {outputPath}");
         }
 
         private static void ShowNetworkTree(TiaConnection connection)
@@ -200,70 +171,6 @@ namespace TiaOpennessApp
             WriteFile(outputPath, json);
 
             Console.WriteLine($"Exported {devices.Count} device(s) to: {outputPath}");
-        }
-
-        private static void ListBlocks(TiaConnection connection)
-        {
-            Console.WriteLine("\n═══ PLC BLOCKS ═══\n");
-            var svc = new BlockService(connection);
-            svc.PrintBlockList();
-        }
-
-        private static void ExportBlocksJson(TiaConnection connection)
-        {
-            string outputPath = GetOutputPathOrPrompt("blocks_export.json", "Output file path");
-            Console.WriteLine("Extracting blocks...");
-            var svc = new BlockService(connection);
-            var report = svc.ExportAllBlocks();
-
-            string json = JsonSerializer.Serialize(report, JsonOptions);
-            WriteFile(outputPath, json);
-
-            Console.WriteLine($"Exported {report.BlockCount} blocks to: {outputPath}");
-        }
-
-        private static void ExportBlocksToXml(TiaConnection connection)
-        {
-            string outputDir = GetOutputPathOrPrompt("blocks_export", "Output directory");
-            if (!Directory.Exists(outputDir))
-                Directory.CreateDirectory(outputDir);
-
-            Console.WriteLine("Exporting blocks to XML...");
-            var svc = new BlockService(connection);
-            svc.ExportAllBlocksToDirectory(outputDir!);
-            Console.WriteLine("Block export complete.");
-        }
-
-        private static void ShowDevicesAndNetworks(TiaConnection connection)
-        {
-            Console.WriteLine("\n═══ DEVICES & NETWORKS ═══\n");
-            var svc = new DevicesAndNetworksService(connection);
-            svc.PrintDevicesAndNetworks();
-
-            Console.WriteLine();
-            var ioChannels = new IoChannelService(connection);
-            ioChannels.PrintIoChannels();
-        }
-
-        private static void ExportIoChannelsXml(TiaConnection connection)
-        {
-            string outputPath = GetOutputPathOrPrompt("io_channels.xml", "Output file path");
-            Console.WriteLine("Extracting I/O channels...");
-            var svc = new IoChannelService(connection);
-            svc.ExportToXml(outputPath);
-        }
-
-        private static void ExportDevicesAndNetworksJson(TiaConnection connection)
-        {
-            string outputPath = GetOutputPathOrPrompt("devices_and_networks.json", "Output file path");
-            Console.WriteLine("Extracting devices...");
-            var svc = new DevicesAndNetworksService(connection);
-            var report = svc.ExportAll(includeSubnets: false);
-
-            string json = JsonSerializer.Serialize(report, JsonOptions);
-            WriteFile(outputPath, json);
-
-            Console.WriteLine($"Exported {report.DeviceCount} devices to: {outputPath}");
         }
 
         private static string GetOutputPathOrPrompt(string defaultFileName, string label)
