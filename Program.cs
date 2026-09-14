@@ -35,8 +35,14 @@ namespace TiaOpennessApp
 
             try
             {
-                Console.WriteLine("Connecting to TIA Portal...");
-                connection.ConnectWithUi();
+                string mode = (AppConfig["TiaPortal:Mode"] ?? "WithUserInterface").ToLowerInvariant();
+                bool headless = mode.Contains("without") || mode.Contains("headless") || mode.Contains("no");
+
+                Console.WriteLine($"Connecting to TIA Portal ({(headless ? "headless" : "with UI")})...");
+                if (headless)
+                    connection.ConnectHeadless();
+                else
+                    connection.ConnectWithUi();
                 Console.WriteLine("Connected.\n");
 
                 Console.Write("Project path [Enter = appsettings.json]: ");
@@ -75,6 +81,12 @@ namespace TiaOpennessApp
                         case "3":
                             ExportHardwareJson(connection);
                             break;
+                        case "4":
+                            ShowNetworkTree(connection);
+                            break;
+                        case "5":
+                            ExportNetworkJson(connection);
+                            break;
                         case "0":
                             running = false;
                             break;
@@ -110,14 +122,16 @@ namespace TiaOpennessApp
 
         private static void PrintMenu()
         {
-            Console.WriteLine("┌─────────────────────────────────┐");
-            Console.WriteLine("│         MAIN MENU               │");
-            Console.WriteLine("├─────────────────────────────────┤");
-            Console.WriteLine("│  1. Project Info                │");
-            Console.WriteLine("│  2. List Devices & HW Tree      │");
-            Console.WriteLine("│  3. Export Hardware → JSON      │");
-            Console.WriteLine("│  0. Exit                        │");
-            Console.WriteLine("└─────────────────────────────────┘");
+            Console.WriteLine("┌──────────────────────────────────┐");
+            Console.WriteLine("│         MAIN MENU                │");
+            Console.WriteLine("├──────────────────────────────────┤");
+            Console.WriteLine("│  1. Project Info                 │");
+            Console.WriteLine("│  2. List Devices & HW Tree       │");
+            Console.WriteLine("│  3. Export Hardware → JSON       │");
+            Console.WriteLine("│  4. Network Devices Tree         │");
+            Console.WriteLine("│  5. Export Network Devices → JSON│");
+            Console.WriteLine("│  0. Exit                         │");
+            Console.WriteLine("└──────────────────────────────────┘");
             Console.Write("Select: ");
         }
 
@@ -146,6 +160,26 @@ namespace TiaOpennessApp
             WriteFile(outputPath, json);
 
             Console.WriteLine($"Exported {report.DeviceCount} devices to: {outputPath}");
+        }
+
+        private static void ShowNetworkTree(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ NETWORK DEVICES TREE ═══\n");
+            var svc = new DevicesAndNetworksService(connection);
+            svc.PrintNetworkTree();
+        }
+
+        private static void ExportNetworkJson(TiaConnection connection)
+        {
+            string outputPath = GetOutputPathOrPrompt("network_devices.json", "Output file path");
+            Console.WriteLine("Extracting network devices...");
+            var svc = new DevicesAndNetworksService(connection);
+            var devices = svc.ExportNetworkDevices();
+
+            string json = JsonSerializer.Serialize(devices, JsonOptions);
+            WriteFile(outputPath, json);
+
+            Console.WriteLine($"Exported {devices.Count} device(s) to: {outputPath}");
         }
 
         private static void ListBlocks(TiaConnection connection)
