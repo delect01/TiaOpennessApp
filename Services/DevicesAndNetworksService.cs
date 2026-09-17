@@ -10,11 +10,16 @@ namespace TiaOpennessApp.Services
 {
     public class DevicesAndNetworksService
     {
-        private readonly TiaConnection _connection;
+        private readonly Project _project;
 
         public DevicesAndNetworksService(TiaConnection connection)
         {
-            _connection = connection;
+            _project = connection.Project;
+        }
+
+        public DevicesAndNetworksService(Project project)
+        {
+            _project = project;
         }
 
         public List<NetworkDeviceInfo> ExportNetworkDevices()
@@ -51,6 +56,8 @@ namespace TiaOpennessApp.Services
                             IpAddress = GetItemIp(item, netIf, node),
                             Subnet = node?.ConnectedSubnet?.Name ?? "Not connected",
                             MasterIoSystem = GetMasterIoSystem(item, node) ?? string.Empty,
+                            SubnetMask = GetItemSubnetMask(item, netIf, node),
+                            PnDeviceName = GetPnDeviceName(item, netIf, node),
                         });
                     }
                     else if (IsInterfaceItem(item))
@@ -60,6 +67,8 @@ namespace TiaOpennessApp.Services
                             InterfaceName = item.Name,
                             InterfaceType = GetInterfaceTypeName(item),
                             Subnet = "Not connected",
+                            SubnetMask = GetItemSubnetMask(item, null, null),
+                            PnDeviceName = GetPnDeviceName(item, null, null),
                         });
                     }
 
@@ -70,6 +79,7 @@ namespace TiaOpennessApp.Services
                             Name = item.Name,
                             TypeName = GetTypeName(item) ?? string.Empty,
                             OrderNumber = orderNumber ?? string.Empty,
+                            PositionNumber = item.PositionNumber,
                         });
                     }
                 }
@@ -83,7 +93,7 @@ namespace TiaOpennessApp.Services
 
         public void PrintNetworkTree()
         {
-            var project = _connection.Project;
+            var project = _project;
             var devices = ExportNetworkDevices();
 
             Console.WriteLine($"  Project:  {project.Name} ({project.Version})");
@@ -148,10 +158,26 @@ namespace TiaOpennessApp.Services
             Console.WriteLine($"  Totals: {devices.Count} device(s), {totalInterfaces} interface(s)");
         }
 
+        public void DumpTypeIdentifiers()
+        {
+            foreach (Device device in EnumerateAllDevices())
+            {
+                Console.WriteLine($"DEVICE: {device.Name}  TypeIdent={device.TypeIdentifier}");
+                foreach (DeviceItem item in EnumerateItems(device))
+                {
+                    string order = GetAttr(item, "OrderNumber") ?? string.Empty;
+                    string? fw = GetAttr(item, "FirmwareVersion");
+                    if (fw == null)
+                        fw = GetAttr(item, "Firmware");
+                    Console.WriteLine($"  ITEM: {item.Name}  TypeIdent={item.TypeIdentifier}  Order={order}  FW={fw ?? string.Empty}");
+                }
+            }
+        }
+
         private IEnumerable<Device> EnumerateAllDevices()
         {
             var seen = new HashSet<string>();
-            var project = _connection.Project;
+            var project = _project;
 
             foreach (Device device in project.Devices)
                 if (seen.Add(device.Name)) yield return device;
@@ -271,6 +297,34 @@ namespace TiaOpennessApp.Services
         private static string GetItemIp(DeviceItem item, NetworkInterface? netIf, Node? node)
         {
             string[] names = { "IpAddress", "Ipv4Address", "Address" };
+            foreach (string name in names)
+            {
+                string? value;
+                if ((value = GetAttr(item, name)) != null) return value;
+                if (netIf != null && (value = GetAttr(netIf, name)) != null) return value;
+                if (node != null && (value = GetAttr(node, name)) != null) return value;
+                if (node?.Parent != null && (value = GetAttr(node.Parent, name)) != null) return value;
+            }
+            return string.Empty;
+        }
+
+        private static string GetItemSubnetMask(DeviceItem item, NetworkInterface? netIf, Node? node)
+        {
+            string[] names = { "SubnetMask", "IpSubnetMask", "Mask", "NetworkMask" };
+            foreach (string name in names)
+            {
+                string? value;
+                if ((value = GetAttr(item, name)) != null) return value;
+                if (netIf != null && (value = GetAttr(netIf, name)) != null) return value;
+                if (node != null && (value = GetAttr(node, name)) != null) return value;
+                if (node?.Parent != null && (value = GetAttr(node.Parent, name)) != null) return value;
+            }
+            return string.Empty;
+        }
+
+        private static string GetPnDeviceName(DeviceItem item, NetworkInterface? netIf, Node? node)
+        {
+            string[] names = { "PnDeviceName", "PnName", "IoDeviceName", "InterfaceDeviceName" };
             foreach (string name in names)
             {
                 string? value;

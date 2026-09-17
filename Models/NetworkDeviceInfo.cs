@@ -18,6 +18,8 @@ namespace TiaOpennessApp.Models
         public string IpAddress { get; set; } = string.Empty;
         public string Subnet { get; set; } = string.Empty;
         public string MasterIoSystem { get; set; } = string.Empty;
+        public string SubnetMask { get; set; } = string.Empty;
+        public string PnDeviceName { get; set; } = string.Empty;
     }
 
     public class NetworkModuleInfo
@@ -25,5 +27,6 @@ namespace TiaOpennessApp.Models
         public string Name { get; set; } = string.Empty;
         public string TypeName { get; set; } = string.Empty;
         public string OrderNumber { get; set; } = string.Empty;
+        public int PositionNumber { get; set; }
     }
 }

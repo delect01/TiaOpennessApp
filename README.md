@@ -1,6 +1,11 @@
 # TIA Portal Openness - Engineering Tool (V21)
 
-C# console application for reading and exporting TIA Portal V21 project data via the Openness API.
+C# console application (.NET Framework 4.8) that connects to TIA Portal V21 via
+the Openness API to inspect and export project data.
+
+> **Scope of this document**: current state of the application (read / export).
+> The evolution plan (device generation from documents) lives in
+> [`ROADMAP.md`](./ROADMAP.md).
 
 ## Prerequisites
 
@@ -30,54 +35,56 @@ Project path and output location are read from `appsettings.json` (or provided a
 ```json
 {
   "TiaPortal": {
-    "ProjectPath": "C:\\Users\\DPTO_ELECT\\Documents\\Automation\\AE82\\AE82.ap21",
-    "Mode": "WithUserInterface",
-    "OutputPath": "C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\Exports"
+    "Mode": "Auto",
+    "Version": "21",
+    "ProjectPath": "C:\\Users\\DPTO_ELECT\\Documents\\Automation",
+    "ProjectName": "AE82",
+    "ExportPath": "C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\exports",
+    "ImportPath": "C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\imports",
+    "NewProjectPath": "C:\\Users\\DPTO_ELECT\\Documents\\Automation",
+    "NewProjectName": "AE82_New"
   }
 }
 ```
 
-`OutputPath` is used for every file result (JSON / XML / TXT). It can be:
-
-- a **directory** (no file extension, or ends with `\`), in which case each export
-  writes a default filename into it:
-  `hardware_export.json`, `blocks_export.json`, `blocks_export\` (XML files),
-  `devices_and_networks.json`, `io_channels.xml`.
-- a **full file path**, used as-is for single-file exports (JSON / XML / TXT).
-
-If `OutputPath` is empty, the app prompts for the destination at each menu.
+| Key | Description |
+|-----|-------------|
+| `Mode` | `Auto` / `WithoutUserInterface` / `WithUserInterface` |
+| `Version` | TIA Portal version (21) |
+| `ProjectPath` + `ProjectName` | Root folder and name used to resolve the project to open |
+| `ImportPath` | Folder reserved for import documents (used by the roadmap) |
+| `NewProjectPath` + `NewProjectName` | Destination and name for project creation |
 
 ## Features
 
 | Menu | Description |
 |------|-------------|
 | 1. Project Info | Name, version, path, creation date, device count |
-| 2. List Devices & HW Tree | Console tree of all devices, module items, addresses, positions |
-| 3. Export Hardware → JSON | Full device + DeviceItem tree with order numbers, GSD data, I/O addresses to JSON |
-| 4. List PLC Blocks | Console list of all OBs, FBs, FCs, DBs per CPU |
-| 5. Export Blocks → JSON | Block metadata (name, number, language, memory size) to JSON |
-| 6. Export Blocks → XML Files | One XML source file per block, organized by device/CPU folder |
-| 7. Devices & Networks View | Device groups tree, ungrouped devices, subnets with nodes/interfaces |
-| 8. Export Devices → JSON | Device groups and ungrouped devices (no networks/subnets) to JSON |
-| 9. Export I/O Channels → XML | Station/Rack/Module/IOChannel with addresses and tags (AE82_IO_Channels.xml schema) |
+| 2. Network Devices Tree | Console tree of all devices and their network interfaces |
+| 3. Export Docs → 4 CSV files | Generates `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv` from the open project (inverse of the generation pipeline) |
+
+Plus three top-level flows:
+
+- **Open an existing project** (reads `TiaPortal:ProjectPath`/`ProjectName`)
+- **Create a new project** (`ProjectComposition.Create`, validates an empty destination folder)
+- **Generate project from documents** (full pipeline: parse -> validate -> devices/modules/subnets/interfaces -> `Save()`; no auto-comparison; use `--diff-topology` to compare two JSON exports)
+  - **Status: complete for Siemens devices; GSD third-party devices require manual insertion.**
+    - Siemens (S7-CPU, ET200SP IM+modules, subnets, interfaces): fully automated, verified (CPU21 + ETH03/04/05, 65 modules plugged, 2 subnets).
+    - GSD devices (SEW, DFE/MOVIFIT, FANUC): `CreateWithItem` fails with `Necessary license 'gsdml-...' is missing` (Openness enforces GSD licensing on the API path; GUI insertion works). Add them manually from the catalog. See ROADMAP "GSD" change log entry.
 
 ## Project Structure
 
 ```
 TiaOpennessApp/
-├── Program.cs                  # CLI menu and orchestration
+├── Program.cs                  # CLI flows, menu and orchestration
 ├── Services/
-│   ├── TiaConnection.cs             # Openness assembly loading, portal connect, project open, cleanup
-│   ├── DevicesAndNetworksService.cs # Device groups, subnets, nodes ("Devices & Networks" view)
-│   ├── IoChannelService.cs          # I/O channel extraction per station/rack/module + XML export
-│   ├── HardwareService.cs           # Device tree, HW attribute extraction, JSON export models
-│   ├── BlockService.cs              # PLC block enumeration, XML source export
-│   └── ProjectService.cs            # Project metadata queries
+│   ├── TiaConnection.cs             # Assembly resolve, portal connect (headless/UI/auto), open project, cleanup
+│   ├── ProjectService.cs            # Project metadata queries
+│   ├── ProjectCreationService.cs    # Empty project creation via ProjectComposition.Create
+│   └── DevicesAndNetworksService.cs # Device/interfaces/modules extraction, console tree, JSON export
 ├── Models/
-│   ├── DevicesAndNetworksInfo.cs    # DevicesAndNetworksReport, DeviceGroupInfo, SubnetInfo, NodeInfo
-│   ├── IoChannelInfo.cs             # IoChannelExportReport, IoStationInfo, IoRackInfo, IoModuleInfo, IoChannelInfo
-│   ├── HardwareInfo.cs              # HardwareInfo, DeviceSummary, HardwareExportReport, ProjectMetadata
-│   └── BlockInfo.cs                 # BlockInfo, BlockExportReport
+│   └── NetworkDeviceInfo.cs         # NetworkDeviceInfo, NetworkInterfaceInfo, NetworkModuleInfo
+├── ROADMAP.md                   # Phased execution plan (device generation from documents)
 ├── appsettings.json
 ├── app.config
 └── TiaOpennessApp.csproj
@@ -89,16 +96,9 @@ TiaOpennessApp/
 // Connect headless (no UI)
 var portal = new TiaPortal(TiaPortalMode.WithoutUserInterface);
 
-// Access PLC software from a device item
-SoftwareContainer sc = ((IEngineeringServiceProvider)deviceItem).GetService<SoftwareContainer>();
-PlcSoftware sw = sc.Software as PlcSoftware;
-
-// Iterate blocks
-foreach (PlcBlock block in sw.BlockGroup.Blocks) { ... }
-
-// GSD attributes
-GsdDeviceItem gsd = ((IEngineeringServiceProvider)deviceItem).GetService<GsdDeviceItem>();
-string gsdName = gsd.GsdName;
+// Read any attribute via interface
+IEngineeringObject obj = (IEngineeringObject)deviceItem;
+string typeName = (string)obj.GetAttribute("TypeName");
 
 // Device groups ("Devices & Networks")
 foreach (DeviceGroup group in project.DeviceGroups) { string n = group.Name; }
@@ -109,26 +109,12 @@ foreach (Device device in project.UngroupedDevicesGroup.Devices) { ... }
 // Subnets and node interfaces
 foreach (Subnet subnet in project.Subnets)
     foreach (Node node in subnet.Nodes) { string host = node.Parent.ToString(); }
-
-// I/O channels per module
-foreach (DeviceItem item in allDeviceItems)
-    foreach (Channel channel in item.Channels) { int n = channel.Number; }
-
-// Export block source XML
-block.Export(new FileInfo(path), ExportOptions.WithDefaults);
-
-// Read any attribute via interface
-IEngineeringObject obj = (IEngineeringObject)deviceItem;
-string typeName = (string)obj.GetAttribute("TypeName");
 ```
 
-## Next Steps
+## Roadmap
 
-- [x] Devices & Networks view (groups, devices, subnets, nodes)
-- [x] I/O channel export (stations, racks, modules, addresses, tags)
-- [ ] Block interface member export (PlcBlockInterface)
-- [ ] Tag table export
-- [ ] PLC type (UDT / PLC data type) export
-- [ ] Project comparison / diff
-- [ ] Device group organization queries
-- [ ] Subnet and network view export
+See [`ROADMAP.md`](./ROADMAP.md) for the phased plan:
+
+- P0–P9: build, import models, reference catalog, CSV/XLSX readers, validator
+  + dry-run, and eventually device/module/subnet/interface **generation** in TIA.
+- F10+: PLC blocks, DBs, tag tables and HMI (after P9 is approved).

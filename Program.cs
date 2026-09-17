@@ -1,7 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Siemens.Engineering;
+using TiaOpennessApp.Models;
+using TiaOpennessApp.Models.Generation;
 using TiaOpennessApp.Services;
 
 namespace TiaOpennessApp
@@ -24,6 +29,12 @@ namespace TiaOpennessApp
 
         static void Main(string[] args)
         {
+            if (args.Length > 0)
+            {
+                RunCliMode(args);
+                return;
+            }
+
             Console.WriteLine("╔══════════════════════════════════════════════╗");
             Console.WriteLine("║   TIA Portal Openness - Engineering Tool     ║");
             Console.WriteLine("║            V21 - .NET 4.8                    ║");
@@ -61,55 +72,35 @@ namespace TiaOpennessApp
 
                 Console.WriteLine("Connected.\n");
 
-                Console.Write("Project path [Enter = appsettings.json]: ");
-                string? inputPath = Console.ReadLine()?.Trim();
-                string projectPath;
-
-                if (string.IsNullOrEmpty(inputPath))
+bool exitRequested = false;
+                while (!exitRequested)
                 {
-                    projectPath = AppConfig["TiaPortal:ProjectPath"]
-                        ?? throw new InvalidOperationException("ProjectPath not configured.");
-                    Console.WriteLine($"Using configured path: {projectPath}");
-                }
-                else
-                {
-                    projectPath = inputPath!;
-                }
+                    Console.WriteLine("What do you want to do?");
+                    Console.WriteLine("  1. Open an existing project (view/modify)");
+                    Console.WriteLine("  2. Create a new project");
+                    Console.WriteLine("  3. Generate project from documents (full pipeline)");
+                    Console.WriteLine("  0. Sortir");
+                    Console.Write("Select: ");
 
-                Console.WriteLine("Opening project (read-only)...");
-                connection.OpenProject(projectPath);
-                Console.WriteLine("Project opened.\n");
-
-                bool running = true;
-                while (running)
-                {
-                    PrintMenu();
                     string? choice = Console.ReadLine()?.Trim();
-
                     switch (choice)
                     {
                         case "1":
-                            ShowProjectInfo(connection);
+                            exitRequested = OpenExistingProjectFlow(connection);
                             break;
                         case "2":
-                            ShowNetworkTree(connection);
+                            exitRequested = CreateNewProjectFlow(connection);
                             break;
                         case "3":
-                            ExportNetworkJson(connection);
+                            GenerateProjectFromDocumentsFlow(connection);
                             break;
                         case "0":
-                            running = false;
+                            Console.WriteLine("Exiting...");
+                            exitRequested = true;
                             break;
                         default:
-                            Console.WriteLine("Invalid option.");
+                            Console.WriteLine("Invalid option. Select 1, 2, 3 or 0: ");
                             break;
-                    }
-
-                    if (running)
-                    {
-                        Console.WriteLine("\nPress any key to continue...");
-                        Console.ReadKey(true);
-                        Console.Clear();
                     }
                 }
             }
@@ -133,14 +124,875 @@ namespace TiaOpennessApp
             Console.ReadKey(true);
         }
 
+        private static void RunCliMode(string[] args)
+        {
+            string command = args[0].ToLowerInvariant();
+
+            if (command == "--gen-catalog-from-export")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --gen-catalog-from-export <exportJson> [catalogCsv]");
+                    return;
+                }
+
+                string jsonPath = args[1];
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+
+                List<NetworkDeviceInfo>? devices =
+                    JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(jsonPath), JsonOptions);
+
+                List<CatalogEntry> candidates = CatalogService.GenerateCandidates(devices ?? new List<NetworkDeviceInfo>());
+                List<CatalogEntry> existing = CatalogService.Load(catalogPath);
+                List<CatalogEntry> merged = CatalogService.Merge(existing, candidates);
+                CatalogService.Save(catalogPath, merged);
+
+                Console.WriteLine($"Catalog: {existing.Count} existing, {candidates.Count} candidates, " +
+                                  $"{merged.Count - existing.Count} added.");
+                Console.WriteLine($"Saved: {catalogPath}");
+                return;
+            }
+
+            if (command == "--generate-template")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --generate-template <outXlsx> [catalogCsv]");
+                    return;
+                }
+
+                string outPath = args[1];
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+
+                new ExcelTemplateGenerator(catalogPath).SaveTemplate(outPath);
+                Console.WriteLine($"Template saved: {outPath}");
+                return;
+            }
+
+            if (command == "--csv-to-xlsx")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --csv-to-xlsx <docsDir> <outXlsx> [catalogCsv]");
+                    return;
+                }
+
+                string docsDir = args[1];
+                string outPath = args[2];
+                string catalogPath = args.Length >= 4
+                    ? args[3]
+                    : ResolveCatalogPath();
+
+                GenerationParseResult csvResult = ReadCsvDocs(docsDir);
+                PrintIssues(csvResult.Issues);
+
+                if (csvResult.HasErrors)
+                {
+                    Console.WriteLine("Cannot convert: CSV has errors.");
+                    return;
+                }
+
+                new ExcelTemplateGenerator(catalogPath).SaveDocument(outPath, csvResult.Document);
+                Console.WriteLine($"XLSX saved: {outPath} " +
+                                  $"(devices={csvResult.Document.Devices.Count}, modules={csvResult.Document.Modules.Count}, " +
+                                  $"subnets={csvResult.Document.Subnets.Count}, interfaces={csvResult.Document.Interfaces.Count})");
+                return;
+            }
+
+            if (command == "--xlsx-to-csv")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --xlsx-to-csv <inXlsx> <outDocsDir>");
+                    return;
+                }
+
+                string xlsxPath = args[1];
+                string docsDir = args[2];
+
+                GenerationParseResult xlsxResult = new ExcelGenerationReader(xlsxPath).Read();
+                PrintIssues(xlsxResult.Issues);
+
+                if (xlsxResult.HasErrors)
+                {
+                    Console.WriteLine("Cannot convert: XLSX has errors.");
+                    return;
+                }
+
+                new CsvGenerationWriter(docsDir).Write(xlsxResult.Document);
+                Console.WriteLine($"CSVs saved to: {docsDir} " +
+                                  $"(devices={xlsxResult.Document.Devices.Count}, modules={xlsxResult.Document.Modules.Count}, " +
+                                  $"subnets={xlsxResult.Document.Subnets.Count}, interfaces={xlsxResult.Document.Interfaces.Count})");
+                return;
+            }
+
+            if (command == "--verify-readers")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --verify-readers <docsDir> <xlsx>");
+                    return;
+                }
+
+                string docsDir = args[1];
+                string xlsxPath = args[2];
+
+                GenerationParseResult csvResult = ReadCsvDocs(docsDir);
+                GenerationParseResult xlsxResult = new ExcelGenerationReader(xlsxPath).Read();
+
+                PrintIssues(csvResult.Issues);
+                PrintIssues(xlsxResult.Issues);
+
+                bool csvOk = !csvResult.HasErrors;
+                bool xlsxOk = !xlsxResult.HasErrors;
+
+                string csvJson = JsonSerializer.Serialize(csvResult.Document, JsonOptions);
+                string xlsxJson = JsonSerializer.Serialize(xlsxResult.Document, JsonOptions);
+                bool identical = string.Equals(csvJson, xlsxJson, StringComparison.Ordinal);
+
+                Console.WriteLine($"CSV  parse: {(csvOk ? "OK" : "ERRORS")} " +
+                                  $"(devices={csvResult.Document.Devices.Count}, modules={csvResult.Document.Modules.Count}, " +
+                                  $"subnets={csvResult.Document.Subnets.Count}, interfaces={csvResult.Document.Interfaces.Count})");
+                Console.WriteLine($"XLSX parse: {(xlsxOk ? "OK" : "ERRORS")} " +
+                                  $"(devices={xlsxResult.Document.Devices.Count}, modules={xlsxResult.Document.Modules.Count}, " +
+                                  $"subnets={xlsxResult.Document.Subnets.Count}, interfaces={xlsxResult.Document.Interfaces.Count})");
+                Console.WriteLine($"CSV == XLSX: {(csvOk && xlsxOk && identical ? "identical" : "DIFFERENT")}");
+                return;
+            }
+
+            if (command == "--validate-docs")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --validate-docs <docsDir> [catalogCsv] [projectFolder]");
+                    return;
+                }
+
+                string docsDir = args[1];
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+                string? projectFolder = args.Length >= 4 ? args[3] : null;
+
+                GenerationParseResult parseResult = ReadCsvDocs(docsDir);
+                PrintIssues(parseResult.Issues);
+
+                if (parseResult.HasErrors)
+                {
+                    Console.WriteLine("Cannot validate: document has parse errors.");
+                    return;
+                }
+
+                var catalog = CatalogService.Load(catalogPath);
+                var validator = new ValidationService(catalog);
+                ValidationReport report = validator.Validate(parseResult.Document);
+                if (projectFolder != null)
+                    validator.ValidateDestinationFolder(projectFolder);
+
+                Console.WriteLine("\n═══ PLANNED OPERATIONS ═══");
+                foreach (string op in report.PlannedOperations)
+                    Console.WriteLine("  - " + op);
+
+                Console.WriteLine("\n═══ VALIDATION REPORT ═══");
+                foreach (var issue in report.Issues)
+                {
+                    string level = issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ";
+                    string item = issue.Item.Length > 0 ? issue.Section + " · " + issue.Item : issue.Section;
+                    Console.WriteLine($"  {level} {item}: {issue.Message}");
+                }
+
+                Console.WriteLine($"\nResult: {report.ErrorCount} error(s), {report.WarningCount} warning(s). " +
+                                  $"{(report.HasErrors ? "NOT READY" : "OK")}");
+                return;
+            }
+
+            if (command == "--gen-devices-sandbox")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --gen-devices-sandbox <docsDir> [catalogCsv] [outJson]");
+                    return;
+                }
+
+                string docsDir = args[1];
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+                string? outJson = args.Length >= 4 ? args[3] : null;
+
+                GenerationParseResult parseResult = ReadCsvDocs(docsDir);
+                PrintIssues(parseResult.Issues);
+                if (parseResult.HasErrors)
+                {
+                    Console.WriteLine("Cannot generate: document has parse errors.");
+                    return;
+                }
+
+                var catalog = CatalogService.Load(catalogPath);
+                var validator = new ValidationService(catalog);
+                ValidationReport validation = validator.Validate(parseResult.Document);
+
+                foreach (var issue in validation.Issues)
+                {
+                    string level = issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ";
+                    string item = issue.Item.Length > 0 ? issue.Section + " · " + issue.Item : issue.Section;
+                    Console.WriteLine($"  {level} {item}: {issue.Message}");
+                }
+
+                if (validation.HasErrors)
+                {
+                    Console.WriteLine("Cannot generate: validation errors.");
+                    return;
+                }
+
+                Console.WriteLine($"Planned operations: {validation.PlannedOperations.Count}");
+
+                string sandboxPath = ResolveSandboxProjectPath();
+                Console.WriteLine($"Sandbox project: {sandboxPath}");
+
+                using var connection = new TiaConnection();
+                connection.ConnectHeadless();
+                Console.WriteLine("Connected to TIA Portal (headless).");
+
+                Project project = EnsureSandboxProject(connection, sandboxPath);
+                Console.WriteLine($"Project opened/created: {project.Path.FullName}");
+
+                Dictionary<string, string> rootItemNames = BuildRootItemNames(parseResult.Document);
+                var svc = new DevicesGenerationService(project, catalog);
+                List<DeviceGenerationItemReport> reports = svc.Generate(parseResult.Document.Devices, rootItemNames);
+
+                Console.WriteLine("\n═══ DEVICE GENERATION REPORT ═══");
+                PrintDeviceReports(reports);
+
+                var modulesSvc = new ModulesGenerationService(project, catalog);
+                List<ModuleGenerationItemReport> moduleReports =
+                    modulesSvc.Generate(parseResult.Document, rootItemNames);
+
+                Console.WriteLine("\n═══ MODULE GENERATION REPORT ═══");
+                PrintModuleReports(moduleReports);
+
+                var subnetsSvc = new SubnetsGenerationService(project);
+                List<SubnetGenerationItemReport> subnetReports =
+                    subnetsSvc.Generate(parseResult.Document.Subnets);
+
+                Console.WriteLine("\n═══ SUBNET GENERATION REPORT ═══");
+                PrintSubnetReports(subnetReports);
+
+                var interfacesSvc = new InterfacesGenerationService(project);
+                List<InterfaceGenerationItemReport> interfaceReports =
+                    interfacesSvc.Generate(parseResult.Document);
+
+                Console.WriteLine("\n═══ INTERFACE GENERATION REPORT ═══");
+                PrintInterfaceReports(interfaceReports);
+
+                project.Save();
+                Console.WriteLine("\nProject saved.");
+
+                if (outJson != null)
+                {
+                    var exportSvc = new DevicesAndNetworksService(project);
+                    var devices = exportSvc.ExportNetworkDevices();
+                    string json = JsonSerializer.Serialize(devices, JsonOptions);
+                    WriteFile(outJson, json);
+                    Console.WriteLine($"Exported network devices ({devices.Count}) to: {outJson}");
+                }
+                return;
+            }
+
+            if (command == "--generate-project")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName]");
+                    return;
+                }
+
+                string docsDir = args[1];
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+                string? targetDirectory = args.Length >= 4 ? args[3] : null;
+                string? projectName = args.Length >= 5 ? args[4] : null;
+
+                using var genConnection = new TiaConnection();
+                genConnection.ConnectHeadless();
+                Console.WriteLine("Connected to TIA Portal (headless).");
+
+                RunFullGenerationPipeline(genConnection, docsDir, catalogPath, targetDirectory, projectName);
+                return;
+            }
+
+            if (command == "--roundtrip-test")
+            {
+                if (args.Length < 5)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]");
+                    return;
+                }
+
+                using var rtConnection = new TiaConnection();
+                RunRoundTripTest(rtConnection, args);
+                return;
+            }
+
+            if (command == "--diff-topology")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --diff-topology <expectedJson> <actualJson>");
+                    return;
+                }
+
+                List<NetworkDeviceInfo> expected =
+                    JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(args[1]), JsonOptions)
+                    ?? new List<NetworkDeviceInfo>();
+                List<NetworkDeviceInfo> actual =
+                    JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(args[2]), JsonOptions)
+                    ?? new List<NetworkDeviceInfo>();
+
+                IReadOnlyCollection<string>? knownGap = null;
+                if (args.Length >= 4 && File.Exists(args[3]))
+                {
+                    knownGap = JsonSerializer.Deserialize<List<string>>(File.ReadAllText(args[3]), JsonOptions)
+                               ?? new List<string>();
+                }
+
+                var topologyDiff = new TopologyDiffService().Compare(expected, actual, knownGap);
+                PrintTopologyDiff(topologyDiff);
+                return;
+            }
+
+            if (command == "--dump-type-id")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-type-id <projectPath>");
+                    return;
+                }
+
+                using var dumpConnection = new TiaConnection();
+                dumpConnection.ConnectHeadless();
+                dumpConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {dumpConnection.Project.Name}");
+                new DevicesAndNetworksService(dumpConnection).DumpTypeIdentifiers();
+                return;
+            }
+
+            if (command == "--plug-diagnose")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --plug-diagnose <projectPath> [catalogCsv]");
+                    return;
+                }
+
+                string catalogPath = args.Length >= 3
+                    ? args[2]
+                    : ResolveCatalogPath();
+
+                var catalog = CatalogService.Load(catalogPath);
+                var identifiers = catalog
+                    .Where(e => e.Identifier.Length > 0)
+                    .Select(e => e.Identifier)
+                    .ToList();
+
+                using var diagConnection = new TiaConnection();
+                diagConnection.ConnectHeadless();
+                diagConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {diagConnection.Project.Name}\n");
+
+                var service = new ModulesGenerationService(diagConnection.Project, catalog);
+                service.PrintPlugDiagnostics(diagConnection.Project, "ET200SP_01", "PN03", identifiers);
+                return;
+            }
+
+            if (command == "--export-docs")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --export-docs <projectPath|exportJson> [outDocsDir] [catalogCsv]");
+                    return;
+                }
+
+                string sourcePath = args[1];
+                string docsDir = args.Length >= 3
+                    ? args[2]
+                    : (AppConfig["Export:DocsPath"] ?? Path.Combine("exports"));
+                string catalogPath = args.Length >= 4
+                    ? args[3]
+                    : ResolveCatalogPath();
+
+                List<NetworkDeviceInfo> exportDevices;
+                if (sourcePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && File.Exists(sourcePath))
+                {
+                    exportDevices = JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(sourcePath), JsonOptions)
+                                    ?? new List<NetworkDeviceInfo>();
+                    Console.WriteLine($"Font: exportació JSON ({exportDevices.Count} dispositiu(s))");
+                }
+                else
+                {
+                    using var docsConnection = new TiaConnection();
+                    docsConnection.ConnectHeadless();
+                    docsConnection.OpenProject(sourcePath);
+                    Console.WriteLine($"Font: projecte {docsConnection.Project.Name}");
+                    exportDevices = new DevicesAndNetworksService(docsConnection.Project).ExportNetworkDevices();
+                }
+
+                var catalog = CatalogService.Load(catalogPath);
+                Console.WriteLine($"Catàleg: {catalog.Count} entrada(s)");
+
+                var docsReport = new DocsExportService(docsDir, catalog).Export(exportDevices);
+                Console.WriteLine();
+                Console.WriteLine($"Docs generats a: {docsReport.OutputDir}");
+                Console.WriteLine($"  Devices:    {docsReport.Devices}");
+                Console.WriteLine($"  Modules:    {docsReport.Modules}");
+                Console.WriteLine($"  Subnets:    {docsReport.Subnets}");
+                Console.WriteLine($"  Interfaces: {docsReport.Interfaces}");
+                return;
+            }
+
+            if (command == "--dump-subnets")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-subnets <projectPath>");
+                    return;
+                }
+
+                using var dumpSubnetsConnection = new TiaConnection();
+                dumpSubnetsConnection.ConnectHeadless();
+                dumpSubnetsConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {dumpSubnetsConnection.Project.Name}");
+                new SubnetsGenerationService(dumpSubnetsConnection.Project).DumpSubnets();
+                return;
+            }
+
+            if (command == "--dump-interfaces")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-interfaces <projectPath>");
+                    return;
+                }
+
+                using var dumpIfConnection = new TiaConnection();
+                dumpIfConnection.ConnectHeadless();
+                dumpIfConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {dumpIfConnection.Project.Name}");
+                new InterfacesGenerationService(dumpIfConnection.Project).DumpInterfaces();
+                return;
+            }
+
+            Console.WriteLine($"Unknown command: {args[0]}");
+            Console.WriteLine("Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx | " +
+                              "--xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox | " +
+                              "--generate-project | --roundtrip-test | --diff-topology | --dump-type-id | " +
+                              "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces");
+        }
+
+        private static GenerationParseResult ReadCsvDocs(string docsDir)
+        {
+            string GetPath(string fileName) => Path.Combine(docsDir, fileName);
+            var reader = new CsvGenerationReader(
+                GetPath("Devices.csv"),
+                GetPath("Modules.csv"),
+                GetPath("Subnets.csv"),
+                GetPath("Interfaces.csv"));
+            return reader.Read();
+        }
+
+        private static void PrintIssues(List<ParseIssue> issues)
+        {
+            foreach (var issue in issues)
+            {
+                string where = issue.Source;
+                if (issue.Row > 0)
+                    where += ":" + issue.Row;
+                if (issue.Column > 0)
+                    where += ":" + issue.Column;
+
+                Console.WriteLine($"  {(issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ")} {where}: {issue.Message}");
+            }
+        }
+
+        private static string ResolveSandboxProjectPath()
+        {
+            string dir = AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
+            string name = AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(name))
+                throw new InvalidOperationException("TiaPortal:NewProjectPath and TiaPortal:NewProjectName must be configured.");
+            return Path.Combine(dir, name, name + ".ap21");
+        }
+
+        private static Project EnsureSandboxProject(TiaConnection connection, string projectPath, string? createRoot = null, string? createName = null)
+        {
+            if (File.Exists(projectPath))
+            {
+                connection.OpenProject(projectPath);
+                return connection.Project;
+            }
+
+            string root = createRoot ?? AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
+            string name = createName ?? AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
+            var svc = new ProjectCreationService(connection);
+            return svc.CreateNewProject(root, name);
+        }
+
+        private static Dictionary<string, string> BuildRootItemNames(GenerationDocument doc)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var module in doc.Modules)
+            {
+                if (module.TypeKey.Length == 0 || module.Device.Length == 0)
+                    continue;
+                DeviceSpec? device = doc.Devices.FirstOrDefault(d =>
+                    d.DeviceName.Equals(module.Device, StringComparison.OrdinalIgnoreCase)
+                    && d.TypeKey.Equals(module.TypeKey, StringComparison.OrdinalIgnoreCase));
+                if (device != null)
+                    map[device.DeviceName] = module.ModuleName;
+            }
+            return map;
+        }
+
+        private static void GenerateProjectFromDocumentsFlow(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ GENERATE PROJECT FROM DOCUMENTS ═══");
+
+            string docsDir = ResolveDocsDirectory();
+            string catalogPath = ResolveCatalogPath();
+
+            string configuredPath = AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
+            string configuredName = AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
+
+            string targetDirectory = ReadRequiredValue("Destination directory", configuredPath);
+            string projectName = ReadRequiredValue("Project name", configuredName);
+
+            RunFullGenerationPipeline(connection, docsDir, catalogPath, targetDirectory, projectName);
+        }
+
+        private sealed class GenerationRunResult
+        {
+            public Project? Project { get; set; }
+            public List<DeviceGenerationItemReport> Devices { get; set; } = new();
+            public List<ModuleGenerationItemReport> Modules { get; set; } = new();
+            public List<SubnetGenerationItemReport> Subnets { get; set; } = new();
+            public List<InterfaceGenerationItemReport> Interfaces { get; set; } = new();
+        }
+
+        private static GenerationRunResult? RunFullGenerationPipeline(
+            TiaConnection connection,
+            string docsDir,
+            string catalogPath,
+            string? targetDirectory = null,
+            string? projectName = null)
+        {
+            var result = new GenerationRunResult();
+
+            GenerationParseResult parseResult = ReadCsvDocs(docsDir);
+            PrintIssues(parseResult.Issues);
+            if (parseResult.HasErrors)
+            {
+                Console.WriteLine("\nAbortat: el document té errors de parseig.");
+                return null;
+            }
+
+            var catalog = CatalogService.Load(catalogPath);
+            var validator = new ValidationService(catalog);
+            ValidationReport validation = validator.Validate(parseResult.Document);
+
+            Console.WriteLine("\n═══ VALIDATION ═══");
+            foreach (var issue in validation.Issues)
+            {
+                string level = issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ";
+                string item = issue.Item.Length > 0 ? issue.Section + " · " + issue.Item : issue.Section;
+                Console.WriteLine($"  {level} {item}: {issue.Message}");
+            }
+            Console.WriteLine($"Result: {validation.ErrorCount} error(s), {validation.WarningCount} warning(s).");
+
+            if (validation.HasErrors)
+            {
+                Console.WriteLine("Abortat: hi ha errors de validació.");
+                return null;
+            }
+
+            Console.WriteLine($"Planned operations: {validation.PlannedOperations.Count}");
+
+            string sandboxPath;
+            Project project;
+            if (string.IsNullOrWhiteSpace(targetDirectory) || string.IsNullOrWhiteSpace(projectName))
+            {
+                sandboxPath = ResolveSandboxProjectPath();
+                project = EnsureSandboxProject(connection, sandboxPath);
+            }
+            else
+            {
+                sandboxPath = Path.Combine(targetDirectory, projectName, projectName + ".ap21");
+                project = EnsureSandboxProject(connection, sandboxPath, targetDirectory, projectName);
+            }
+            Console.WriteLine($"Projecte sandbox: {project.Path.FullName}");
+
+            Dictionary<string, string> rootItemNames = BuildRootItemNames(parseResult.Document);
+
+            Console.WriteLine("\n═══ DEVICE GENERATION ═══");
+            var deviceReports = new DevicesGenerationService(project, catalog)
+                .Generate(parseResult.Document.Devices, rootItemNames);
+            PrintDeviceReports(deviceReports);
+
+            Console.WriteLine("\n═══ MODULE GENERATION ═══");
+            var moduleReports = new ModulesGenerationService(project, catalog)
+                .Generate(parseResult.Document, rootItemNames);
+            PrintModuleReports(moduleReports);
+
+            Console.WriteLine("\n═══ SUBNET GENERATION ═══");
+            var subnetReports = new SubnetsGenerationService(project)
+                .Generate(parseResult.Document.Subnets);
+            PrintSubnetReports(subnetReports);
+
+            Console.WriteLine("\n═══ INTERFACE GENERATION ═══");
+            var interfaceReports = new InterfacesGenerationService(project)
+                .Generate(parseResult.Document);
+            PrintInterfaceReports(interfaceReports);
+
+            project.Save();
+            Console.WriteLine("\nProjecte desat.");
+
+            result.Project = project;
+            result.Devices = deviceReports;
+            result.Modules = moduleReports;
+            result.Subnets = subnetReports;
+            result.Interfaces = interfaceReports;
+
+            Console.WriteLine("\nPipeline acabat.");
+            return result;
+        }
+
+        private static void RunRoundTripTest(TiaConnection connection, string[] args)
+        {
+            // --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]
+            string srcProject = args[1];
+            string workDir = args[2];
+            string targetDir = args[3];
+            string projectName = args[4];
+            string seedCatalog = args.Length >= 6 ? args[5] : ResolveCatalogPath();
+
+            Console.WriteLine($"Font:          {srcProject}");
+            Console.WriteLine($"WorkDir:       {workDir}");
+            Console.WriteLine($"Resultat:      {Path.Combine(targetDir, projectName, projectName + ".ap21")}");
+            Console.WriteLine($"Catàleg seed:  {seedCatalog}");
+            Console.WriteLine();
+
+            connection.ConnectHeadless();
+            Console.WriteLine("Connected to TIA Portal (headless).");
+
+            // PAS 1+2+3: obrir font, generar catàleg i els 4 CSV
+            connection.OpenProject(srcProject);
+            Console.WriteLine($"Projecte origen: {connection.Project.Name}");
+
+            List<NetworkDeviceInfo> sourceDevices = new DevicesAndNetworksService(connection.Project).ExportNetworkDevices();
+            Console.WriteLine($"Topologia font: {sourceDevices.Count} dispositiu(s).");
+
+            Directory.CreateDirectory(workDir);
+            string catalogPath = Path.Combine(workDir, "Catalog.csv");
+            string sourceJson = Path.Combine(workDir, "source.json");
+            File.WriteAllText(sourceJson, JsonSerializer.Serialize(sourceDevices, JsonOptions));
+            Console.WriteLine($"Topologia font exportada a: {sourceJson}");
+            List<CatalogEntry> seed = CatalogService.Load(seedCatalog);
+            List<CatalogEntry> candidates = CatalogService.GenerateCandidates(sourceDevices);
+            List<CatalogEntry> catalog = CatalogService.Merge(seed, candidates);
+            CatalogService.Save(catalogPath, catalog);
+            Console.WriteLine($"Catàleg: {seed.Count} seed + {candidates.Count} candidats -> {catalog.Count} entrades a {catalogPath}");
+
+            var docsReport = new DocsExportService(workDir, catalog).Export(sourceDevices);
+            Console.WriteLine($"Docs a {workDir}: {docsReport.Devices} devices, {docsReport.Modules} modules, " +
+                              $"{docsReport.Subnets} subnets, {docsReport.Interfaces} interfaces.");
+            if (docsReport.TypeKeysMissing.Count > 0)
+                Console.WriteLine($"  (avís) TypeKeys no resolts: {string.Join(", ", docsReport.TypeKeysMissing)}");
+
+            connection.CloseProject();
+
+            // PAS 4: neteja del resultat anterior i generació
+            string resultFolder = Path.Combine(targetDir, projectName);
+            if (Directory.Exists(resultFolder))
+            {
+                Console.WriteLine($"\nNetejant resultat anterior: {resultFolder}");
+                try { Directory.Delete(resultFolder, true); }
+                catch (Exception ex) { Console.WriteLine($"  (avís) no s'ha pogut netejar: {ex.Message}"); }
+            }
+
+            GenerationRunResult? gen = RunFullGenerationPipeline(connection, workDir, catalogPath, targetDir, projectName);
+            if (gen?.Project == null)
+            {
+                Console.WriteLine("\nROUNDTRIP FAILED: la generació no ha completat.");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            // PAS 5: re-exportar el generat i comparar amb la font
+            Console.WriteLine("\n═══ RE-EXPORT I COMPARACIÓ ═══");
+            List<NetworkDeviceInfo> actualDevices = new DevicesAndNetworksService(gen.Project).ExportNetworkDevices();
+            File.WriteAllText(Path.Combine(workDir, "actual.json"),
+                JsonSerializer.Serialize(actualDevices, JsonOptions));
+
+            var gsdGapNames = gen.Devices
+                .Where(r => r.Error != null && IsGsdError(r.Error))
+                .Select(r => r.DeviceName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var diff = new TopologyDiffService().Compare(sourceDevices, actualDevices, gsdGapNames);
+            PrintTopologyDiff(diff);
+
+            // Classificació: errors durs (Siemens) vs gaps GSD coneguts
+            int gsdDeviceErrors = gen.Devices.Count(r => r.Error != null && IsGsdError(r.Error));
+            int hardDeviceErrors = gen.Devices.Count(r => r.Error != null && !IsGsdError(r.Error));
+            int moduleErrors = gen.Modules.Count(r => r.Error != null);
+            int interfaceErrors = gen.Interfaces.Count(r => r.Error != null);
+            int subnetErrors = gen.Subnets.Count(r => r.Error != null);
+
+            Console.WriteLine("\n═══ ROUNDTRIP SUMMARY ═══");
+            Console.WriteLine($"  Devices  : {gen.Devices.Count} total | {hardDeviceErrors} errors durs | {gsdDeviceErrors} GSD coneguts (licència)");
+            Console.WriteLine($"  Modules  : {moduleErrors} errors (derivats de dispositius GSD no creats)");
+            Console.WriteLine($"  Subnets  : {subnetErrors} errors");
+            Console.WriteLine($"  Interf.  : {interfaceErrors} errors");
+            Console.WriteLine($"  Topology : {diff.Differences} diferències | {diff.Explained} explicades " +
+                              $"({diff.KnownGaps} GSD esperats) | {diff.DevicesCompared} dispositius comparats");
+
+            bool pass = hardDeviceErrors == 0 && subnetErrors == 0;
+            Console.WriteLine($"\n  RESULTAT: {(pass ? "PASS" : "FAIL")}  " +
+                              $"({(pass ? "cap error dur al camí Siemens; els GSD coneguts no compten" : "hi ha errors durs a resoldre")})");
+            Environment.ExitCode = pass ? 0 : 1;
+        }
+
+        private static bool IsGsdError(string message)
+        {
+            string m = message.ToUpperInvariant();
+            return m.Contains("LICENSE") || m.Contains("GSDML") || m.Contains("GSD");
+        }
+
+        private static void PrintTopologyDiff(TopologyDiffReport diff)
+        {
+            int ok = diff.Items.Count(i => i.Level == TopologyDiffLevel.Ok);
+            Console.WriteLine($"  Devices:     {diff.DevicesCompared} compared " +
+                              $"({diff.KnownGaps} GSD sense llicència - esperats)");
+            Console.WriteLine($"  Modules:     {diff.ModulesCompared} compared");
+            Console.WriteLine($"  Interfaces:  {diff.InterfacesCompared} compared");
+            Console.WriteLine($"  Subnets:     {diff.SubnetsCompared} compared (OK items: {ok})");
+
+            foreach (var item in diff.Items)
+            {
+                string level = item.Level == TopologyDiffLevel.Ok ? "OK  " :
+                               item.Level == TopologyDiffLevel.Difference ? "DIFF" : "EXPL";
+                Console.WriteLine($"  {level} [{item.Category}] {item.Scope}: {item.Message}");
+                if (item.Expected.Length > 0 || item.Actual.Length > 0)
+                    Console.WriteLine($"          esperat='{item.Expected}'  actual='{item.Actual}'");
+            }
+
+            Console.WriteLine($"\n  RESUM: {diff.Differences} diferència(s) dura(s), {diff.Explained} explicada(s). " +
+                              (diff.Passed
+                                  ? "PASSED." + (diff.Explained > 0 ? " Totes les faltes són explicades (GSD coneguts o noms interns de TIA)." : "")
+                                  : "NOT PASSED."));
+        }
+
+        private static string ResolveDocsDirectory()
+        {
+            string? configured = AppConfig["Import:DocsPath"];
+            if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
+                return configured!;
+            return Path.Combine("imports");
+        }
+
+        private static string ResolveCatalogPath()
+        {
+            string? configured = AppConfig["Import:CatalogPath"];
+            if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+                return configured!;
+
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "catalog", "Catalog.csv");
+        }
+
+        private static void PrintDeviceReports(List<DeviceGenerationItemReport> reports)
+        {
+            foreach (var r in reports)
+            {
+                if (r.Created)
+                    Console.WriteLine($"  [CREATE] {r.DeviceName} ({r.TypeKey})");
+                else if (r.Skipped)
+                    Console.WriteLine($"  [EXISTS] {r.DeviceName} ({r.TypeKey})");
+                else
+                    Console.WriteLine($"  [ERROR ] {r.DeviceName} ({r.TypeKey}): {r.Error}");
+            }
+
+            int created = reports.Count(r => r.Created);
+            int skipped = reports.Count(r => r.Skipped);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {created} created, {skipped} already existed, {errors} errors.");
+        }
+
+        private static void PrintModuleReports(List<ModuleGenerationItemReport> reports)
+        {
+            foreach (var r in reports)
+            {
+                if (r.Created)
+                    Console.WriteLine($"  [PLUG ] {r.DeviceName}·{r.ModuleName} → slot {r.Slot} ({r.TypeKey})");
+                else if (r.Skipped)
+                    Console.WriteLine($"  [SKIP ] {r.DeviceName}·{r.ModuleName} slot {r.Slot}: {r.Message ?? "no acció"}");
+                else
+                    Console.WriteLine($"  [ERROR] {r.DeviceName}·{r.ModuleName} slot {r.Slot}: {r.Error}");
+            }
+
+            int created = reports.Count(r => r.Created);
+            int skipped = reports.Count(r => r.Skipped);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {created} plugged, {skipped} skipped, {errors} errors.");
+        }
+
+        private static void PrintSubnetReports(List<SubnetGenerationItemReport> reports)
+        {
+            foreach (var r in reports)
+            {
+                if (r.Created)
+                    Console.WriteLine($"  [CREATE] {r.Name} ({r.SubnetType})");
+                else if (r.Skipped)
+                    Console.WriteLine($"  [EXISTS] {r.Name} ({r.SubnetType})");
+                else
+                    Console.WriteLine($"  [ERROR ] {r.Name} ({r.SubnetType}): {r.Error}");
+            }
+
+            int created = reports.Count(r => r.Created);
+            int skipped = reports.Count(r => r.Skipped);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {created} created, {skipped} already existed, {errors} errors.");
+        }
+
+        private static void PrintInterfaceReports(List<InterfaceGenerationItemReport> reports)
+        {
+            foreach (var r in reports)
+            {
+                string state = r.Connected ? "[CONN]" : (r.Skipped ? "[SKIP ]" : "[SET  ]");
+                string detail = r.Message ?? string.Empty;
+                Console.WriteLine($"  {state} {r.DeviceName}·{r.InterfaceName}: {detail}" +
+                                  (r.Error != null ? $" ERROR: {r.Error}" : string.Empty));
+            }
+
+            int connected = reports.Count(r => r.Connected);
+            int changed = reports.Count(r => !r.Skipped && !r.Connected);
+            int skipped = reports.Count(r => r.Skipped);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {connected} connected, {changed} configured, {skipped} skipped, {errors} errors.");
+        }
+
         private static void PrintMenu()
         {
             Console.WriteLine("┌──────────────────────────────────┐");
-            Console.WriteLine("│         MAIN MENU                │");
+            Console.WriteLine("│         PROJECT MENU             │");
             Console.WriteLine("├──────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                 │");
             Console.WriteLine("│  2. Network Devices Tree         │");
-            Console.WriteLine("│  3. Export Network Devices → JSON│");
+            Console.WriteLine("│  3. Export Docs → 4 CSV files    │");
+            Console.WriteLine("│  4. Generate Catalog → Catalog.csv│");
             Console.WriteLine("│  0. Exit                         │");
             Console.WriteLine("└──────────────────────────────────┘");
             Console.Write("Select: ");
@@ -160,42 +1012,176 @@ namespace TiaOpennessApp
             svc.PrintNetworkTree();
         }
 
-        private static void ExportNetworkJson(TiaConnection connection)
+        private static void ExportDocsFromOpenProject(TiaConnection connection)
         {
-            string outputPath = GetOutputPathOrPrompt("network_devices.json", "Output file path");
-            Console.WriteLine("Extracting network devices...");
-            var svc = new DevicesAndNetworksService(connection);
-            var devices = svc.ExportNetworkDevices();
-
-            string json = JsonSerializer.Serialize(devices, JsonOptions);
-            WriteFile(outputPath, json);
-
-            Console.WriteLine($"Exported {devices.Count} device(s) to: {outputPath}");
-        }
-
-        private static string GetOutputPathOrPrompt(string defaultFileName, string label)
-        {
-            string configured = GetOutputPath(defaultFileName);
-            if (!string.IsNullOrEmpty(configured))
-                return configured;
-
-            Console.Write($"{label} [{defaultFileName}]: ");
+            string defaultDocsDir = AppConfig["Export:DocsPath"]
+                ?? Path.Combine("exports");
+            Console.Write($"Docs directory [{defaultDocsDir}]: ");
             string? input = Console.ReadLine()?.Trim();
-            return string.IsNullOrEmpty(input) ? defaultFileName : input!;
+            string docsDir = string.IsNullOrEmpty(input) ? defaultDocsDir : input!;
+
+            string catalogPath = ResolveCatalogPath();
+            var catalog = CatalogService.Load(catalogPath);
+            Console.WriteLine($"Catalog: {catalog.Count} entry(s).");
+
+            Console.WriteLine("Extracting network devices from the open project...");
+            var devices = new DevicesAndNetworksService(connection).ExportNetworkDevices();
+
+            var report = new DocsExportService(docsDir, catalog).Export(devices);
+            Console.WriteLine();
+            Console.WriteLine($"Docs generats a: {report.OutputDir}");
+            Console.WriteLine($"  Devices:    {report.Devices}");
+            Console.WriteLine($"  Modules:    {report.Modules}");
+            Console.WriteLine($"  Subnets:    {report.Subnets}");
+            Console.WriteLine($"  Interfaces: {report.Interfaces}");
+
+            if (report.TypeKeysMissing.Count > 0)
+            {
+                Console.WriteLine("\nTypeKeys no resolts al catàleg (afegiu-los a Catalog.csv):");
+                foreach (string missing in report.TypeKeysMissing)
+                    Console.WriteLine($"  - {missing}");
+            }
         }
 
-        private static string GetOutputPath(string defaultFileName)
+        private static void GenerateCatalogFromProject(TiaConnection connection)
         {
-            string? configured = AppConfig["TiaPortal:OutputPath"];
-            if (string.IsNullOrWhiteSpace(configured))
-                return string.Empty;
+            string catalogPath = ResolveCatalogPath();
 
-            string path = configured!;
-            bool isDirectory = Directory.Exists(path)
-                || path.EndsWith("\\") || path.EndsWith("/")
-                || string.IsNullOrEmpty(Path.GetExtension(path));
+            Console.WriteLine("Scanning devices and modules of the open project...");
+            var devices = new DevicesAndNetworksService(connection).ExportNetworkDevices();
+            var candidates = CatalogService.GenerateCandidates(devices);
+            var existing = CatalogService.Load(catalogPath);
+            var merged = CatalogService.Merge(existing, candidates);
+            CatalogService.Save(catalogPath, merged);
 
-            return isDirectory ? Path.Combine(path, defaultFileName)! : path;
+            Console.WriteLine($"Catalog: {existing.Count} existing, {candidates.Count} candidates, " +
+                              $"{merged.Count - existing.Count} added.");
+            Console.WriteLine($"Saved: {catalogPath}");
+        }
+
+        private static bool OpenExistingProjectFlow(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ OPEN EXISTING PROJECT ═══");
+
+            string configuredPath = AppConfig["TiaPortal:ProjectPath"] ?? string.Empty;
+            string configuredName = AppConfig["TiaPortal:ProjectName"] ?? string.Empty;
+
+            string directory = ReadRequiredValue("Project path", configuredPath);
+            string projectName = ReadRequiredValue("Project name", configuredName);
+
+            string projectPath = ResolveProjectPath(directory, projectName);
+
+            Console.WriteLine("Opening project (read-only)...");
+            connection.OpenProject(projectPath);
+            Console.WriteLine("Project opened.\n");
+
+            return RunOpenProjectMenu(connection);
+        }
+
+        private static bool CreateNewProjectFlow(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ CREATE NEW PROJECT ═══");
+
+            string configuredPath = AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
+            string configuredName = AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
+
+            string targetDirectory = ReadRequiredValue("Destination directory", configuredPath);
+            string projectName = ReadRequiredValue("Project name", configuredName);
+
+            Console.WriteLine("Creating new project (ProjectComposition.Create)...");
+            var svc = new ProjectCreationService(connection);
+            var created = svc.CreateNewProject(targetDirectory, projectName);
+
+            Console.WriteLine($"Created project: {created.Path.FullName}");
+            Console.WriteLine($"  Name:       {created.Name}");
+            Console.WriteLine($"  Version:    {created.Version}");
+
+            string createdPath = created.Path.FullName;
+            created.Close();
+            Console.WriteLine("Project created and closed.");
+
+            Console.Write("Open the new project to work with it? (y/N): ");
+            string? answer = Console.ReadLine()?.Trim();
+            if (answer != null && answer.Equals("y", StringComparison.OrdinalIgnoreCase))
+            {
+                connection.OpenProject(createdPath);
+                Console.WriteLine("Project opened.\n");
+                return RunOpenProjectMenu(connection);
+            }
+            return false;
+        }
+
+        private static bool RunOpenProjectMenu(TiaConnection connection)
+        {
+            bool running = true;
+            while (running)
+            {
+                PrintMenu();
+                string? choice = Console.ReadLine()?.Trim();
+
+                switch (choice)
+                {
+                    case "1":
+                        ShowProjectInfo(connection);
+                        break;
+                    case "2":
+                        ShowNetworkTree(connection);
+                        break;
+                    case "3":
+                        ExportDocsFromOpenProject(connection);
+                        break;
+                    case "4":
+                        GenerateCatalogFromProject(connection);
+                        break;
+                    case "0":
+                        Console.WriteLine("Back to main menu.\n");
+                        return false;
+                    default:
+                        Console.WriteLine("Invalid option.");
+                        break;
+                }
+
+                Console.WriteLine("\nPress any key to continue...");
+                Console.ReadKey(true);
+                Console.Clear();
+            }
+            return false;
+        }
+
+        private static string ResolveProjectPath(string directory, string projectName)
+        {
+            string dir = directory?.Trim() ?? string.Empty;
+            string name = projectName?.Trim() ?? string.Empty;
+
+            if (name.EndsWith(".ap21", StringComparison.OrdinalIgnoreCase))
+                return Path.GetFullPath(name);
+            if (dir.EndsWith(".ap21", StringComparison.OrdinalIgnoreCase))
+                return Path.GetFullPath(dir);
+
+            if (string.IsNullOrWhiteSpace(dir) && string.IsNullOrWhiteSpace(name))
+                throw new InvalidOperationException("Project path/name not configured and neither provided.");
+
+            string full = Path.Combine(dir, name, name + ".ap21");
+            Console.WriteLine($"Using project: {full}");
+            return full;
+        }
+
+        private static string ReadRequiredValue(string label, string configuredDefault)
+        {
+            string prefix = string.IsNullOrWhiteSpace(configuredDefault)
+                ? $"{label}: "
+                : $"{label} [{configuredDefault}]: ";
+
+            while (true)
+            {
+                Console.Write(prefix);
+                string input = Console.ReadLine()?.Trim() ?? string.Empty;
+                if (input.Length > 0)
+                    return input;
+                if (!string.IsNullOrWhiteSpace(configuredDefault))
+                    return configuredDefault;
+                Console.WriteLine("A value is required.");
+            }
         }
 
         private static void WriteFile(string path, string content)

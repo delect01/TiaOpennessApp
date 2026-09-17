@@ -55,6 +55,38 @@ Paquete VSIX que agrega **menús/comandos a Visual Studio** que ejecutan operaci
 
 ---
 
+## Propuesta 3: Generar documentos de entrada (CSV/XLSX) desde un proyecto real
+
+Inversa de l'exportació de dispositius de xarxa: a partir del proyecto TIA
+abierto, generar
+`imports/docs/{Devices,Modules,Subnets,Interfaces}.csv` (y opcionalmente el XLSX)
+listos para el pipeline de generación (`--generate-project`).
+
+### Detalles
+- Fuente: `DevicesAndNetworksService.ExportNetworkDevices()`.
+- Columnas objetivo en `GenerationColumns.cs`:
+  - `Devices.csv`: `DeviceName,Group,TypeKey,Firmware,Comment`
+  - `Modules.csv`: `Device,ModuleName,Slot,TypeKey,Comment`
+  - `Subnets.csv`: `Name,SubnetType`
+  - `Interfaces.csv`: `Device,InterfaceItem,Subnet,IPAddress,SubnetMask,PNDeviceName`
+- Resolver `TypeKey` automáticamente contra `Catalog.csv` (TypeKey = clave del catálogo para ese MLFB/OrderNumber).
+
+### Estado: IMPLEMENTADO
+- Comando `--export-docs <projectPath|exportJson> [outDocsDir] [catalogCsv]`
+  (CLI.md sección 13; `DocsExportService`, `Program.cs`).
+- `NetworkInterfaceInfo` extendido con `SubnetMask` y `PnDeviceName`; el
+  exportador los lee cuando el atributo existe.
+- Test offline PASSED a partir de `exports/real_network_devices.json`
+  (2 devices / 6 modules / 1 subnet / 3 interfaces, 0 TypeKeys faltantes).
+- Round-trip real con TIA PASSED (2026-09-16): `--generate-project` desde
+  `imports\docs` regeneró AE82_New (2 devices creados, 3 módulos plugueados,
+  1 subnet, 3 interfaces) y `--diff-topology` real vs sandbox dio
+  0 diferencias duras, 3 explicadas (naming de módulos sanitizado).
+- Adoptado: `imports\docs` contiene los documentos generados desde el proyecto
+  real AE82 (se sustituyó la muestra curada).
+
+---
+
 ## Notas técnicas relevantes
 
 - **AllowList**: el hash de cada exe debe registrarse en `HKLM\SOFTWARE\Siemens\Automation\Openness\AllowList`

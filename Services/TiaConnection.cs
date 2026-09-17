@@ -86,6 +86,13 @@ namespace TiaOpennessApp.Services
             if (!File.Exists(fullPath))
                 throw new FileNotFoundException($"Project file not found: {projectPath}");
 
+            // If the requested project is already open (by us or by the GUI), reuse it.
+            if (_project != null && _project.Path != null &&
+                string.Equals(_project.Path.FullName, fullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             // If the project is already open in the portal (e.g. open in the GUI),
             // reuse it: do not open a second copy, and do not close it at the end.
             if (AttachedToExisting)
@@ -102,8 +109,34 @@ namespace TiaOpennessApp.Services
                 }
             }
 
+            // TIA only allows one project open at a time: close the one opened by us first.
+            CloseOwnedProject();
+
             _project = _portal.Projects.Open(new FileInfo(projectPath));
             OpenedProject = true;
+        }
+
+        /// <summary>Closes the project only if this connection opened it; never closes a project the GUI already had open.</summary>
+        public void CloseOwnedProject()
+        {
+            if (_project == null || !OpenedProject)
+                return;
+
+            try { _project.Close(); }
+            catch { }
+            _project = null;
+            OpenedProject = false;
+        }
+
+        public void CloseProject()
+        {
+            if (_project == null)
+                return;
+
+            try { _project.Close(); }
+            catch { }
+            _project = null;
+            OpenedProject = false;
         }
 
         private static Assembly? OnAssemblyResolve(object? sender, ResolveEventArgs args)
