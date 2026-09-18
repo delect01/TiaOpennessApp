@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Siemens.Engineering;
 using TiaOpennessApp.Models;
@@ -19,13 +20,22 @@ namespace TiaOpennessApp
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        private static readonly Lazy<IConfigurationRoot> Config = new(() =>
-            new ConfigurationBuilder()
+        private static readonly JsonSerializerOptions ConfigJsonOptions = new()
+        {
+            WriteIndented = true,
+        };
+
+        private static IConfigurationRoot? _appConfig;
+
+        private static IConfigurationRoot AppConfig => _appConfig ??= BuildConfiguration();
+
+        private static IConfigurationRoot BuildConfiguration()
+        {
+            return new ConfigurationBuilder()
                 .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
                 .AddJsonFile("appsettings.json", optional: false)
-                .Build());
-
-        private static IConfigurationRoot AppConfig => Config.Value;
+                .Build();
+        }
 
         static void Main(string[] args)
         {
@@ -35,10 +45,11 @@ namespace TiaOpennessApp
                 return;
             }
 
-            Console.WriteLine("╔══════════════════════════════════════════════╗");
-            Console.WriteLine("║   TIA Portal Openness - Engineering Tool     ║");
-            Console.WriteLine("║            V21 - .NET 4.8                    ║");
-            Console.WriteLine("╚══════════════════════════════════════════════╝");
+            Console.WriteLine("╔════════════════════════════════════════════════╗");
+            Console.WriteLine("║      EQUIPCERAMIC S.A. - Engineering Tool      ║");
+            Console.WriteLine("║       TIA Portal Openness V21 / .NET 4.8       ║");
+            Console.WriteLine("║                                                ║");
+            Console.WriteLine("╚════════════════════════════════════════════════╝");
             Console.WriteLine();
 
             using var connection = new TiaConnection();
@@ -71,17 +82,33 @@ namespace TiaOpennessApp
                     Console.WriteLine("TIA Portal was not open -> started headless (no GUI).");
 
                 Console.WriteLine("Connected.\n");
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\nERROR connecting to TIA Portal: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"  Inner: {ex.InnerException.Message}");
+                Console.ResetColor();
+                Console.WriteLine("\nDone. Press any key to exit.");
+                Console.ReadKey(true);
+                return;
+            }
 
-bool exitRequested = false;
-                while (!exitRequested)
+            bool exitRequested = false;
+            while (!exitRequested)
+            {
+                try
                 {
-                    Console.WriteLine("What do you want to do?");
-                    Console.WriteLine("  1. Open an existing project (view/modify)");
-                    Console.WriteLine("  2. Create a new project");
-                    Console.WriteLine("  3. Generate project from documents (full pipeline)");
-                    Console.WriteLine("  0. Sortir");
+                    Console.WriteLine("┌──────────────────────────────────────┐");
+                    Console.WriteLine("│               MAIN MENU              │");
+                    Console.WriteLine("├──────────────────────────────────────┤");
+                    Console.WriteLine("│  1. Open an existing project         │");
+                    Console.WriteLine("│  2. Create a new project             │");
+                    Console.WriteLine("│  3. Generate project from documents  │");
+                    Console.WriteLine("│  0. Exit                             │");
+                    Console.WriteLine("└──────────────────────────────────────┘");
                     Console.Write("Select: ");
-
                     string? choice = Console.ReadLine()?.Trim();
                     switch (choice)
                     {
@@ -103,22 +130,23 @@ bool exitRequested = false;
                             break;
                     }
                 }
+                catch (Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"\nERROR: {ex.Message}");
+                    if (ex.InnerException != null)
+                        Console.WriteLine($"  Inner: {ex.InnerException.Message}");
+                    Console.ResetColor();
+                    Console.WriteLine("\nPress any key to continue...");
+                    Console.ReadKey(true);
+                    Console.Clear();
+                }
             }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"\nERROR: {ex.Message}");
-                if (ex.InnerException != null)
-                    Console.WriteLine($"  Inner: {ex.InnerException.Message}");
-                Console.ResetColor();
-            }
-            finally
-            {
-                if (connection.AttachedToExisting)
-                    Console.WriteLine("\nAttached TIA Portal left open (same state as found).");
-                else
-                    Console.WriteLine("\nClosing headless TIA Portal instance...");
-            }
+
+            if (connection.AttachedToExisting)
+                Console.WriteLine("\nAttached TIA Portal left open (same state as found).");
+            else
+                Console.WriteLine("\nClosing headless TIA Portal instance...");
 
             Console.WriteLine("Done. Press any key to exit.");
             Console.ReadKey(true);
@@ -665,11 +693,8 @@ bool exitRequested = false;
             string docsDir = ResolveDocsDirectory();
             string catalogPath = ResolveCatalogPath();
 
-            string configuredPath = AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
-            string configuredName = AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
-
-            string targetDirectory = ReadRequiredValue("Destination directory", configuredPath);
-            string projectName = ReadRequiredValue("Project name", configuredName);
+            string targetDirectory = ReadAndRememberValue("Destination directory", "TiaPortal:NewProjectPath");
+            string projectName = ReadAndRememberValue("Project name", "TiaPortal:NewProjectName");
 
             RunFullGenerationPipeline(connection, docsDir, catalogPath, targetDirectory, projectName);
         }
@@ -986,15 +1011,15 @@ bool exitRequested = false;
 
         private static void PrintMenu()
         {
-            Console.WriteLine("┌──────────────────────────────────┐");
-            Console.WriteLine("│         PROJECT MENU             │");
-            Console.WriteLine("├──────────────────────────────────┤");
-            Console.WriteLine("│  1. Project Info                 │");
-            Console.WriteLine("│  2. Network Devices Tree         │");
-            Console.WriteLine("│  3. Export Docs → 4 CSV files    │");
-            Console.WriteLine("│  4. Generate Catalog → Catalog.csv│");
-            Console.WriteLine("│  0. Exit                         │");
-            Console.WriteLine("└──────────────────────────────────┘");
+            Console.WriteLine("┌────────────────────────────────────┐");
+            Console.WriteLine("│            PROJECT MENU            │");
+            Console.WriteLine("├────────────────────────────────────┤");
+            Console.WriteLine("│  1. Project Info                   │");
+            Console.WriteLine("│  2. Network Devices Tree           │");
+            Console.WriteLine("│  3. Export Docs → 4 CSV files      │");
+            Console.WriteLine("│  4. Generate Catalog → Catalog.csv │");
+            Console.WriteLine("│  0. Exit                           │");
+            Console.WriteLine("└────────────────────────────────────┘");
             Console.Write("Select: ");
         }
 
@@ -1063,11 +1088,8 @@ bool exitRequested = false;
         {
             Console.WriteLine("\n═══ OPEN EXISTING PROJECT ═══");
 
-            string configuredPath = AppConfig["TiaPortal:ProjectPath"] ?? string.Empty;
-            string configuredName = AppConfig["TiaPortal:ProjectName"] ?? string.Empty;
-
-            string directory = ReadRequiredValue("Project path", configuredPath);
-            string projectName = ReadRequiredValue("Project name", configuredName);
+            string directory = ReadAndRememberValue("Project path", "TiaPortal:ProjectPath");
+            string projectName = ReadAndRememberValue("Project name", "TiaPortal:ProjectName");
 
             string projectPath = ResolveProjectPath(directory, projectName);
 
@@ -1082,11 +1104,8 @@ bool exitRequested = false;
         {
             Console.WriteLine("\n═══ CREATE NEW PROJECT ═══");
 
-            string configuredPath = AppConfig["TiaPortal:NewProjectPath"] ?? string.Empty;
-            string configuredName = AppConfig["TiaPortal:NewProjectName"] ?? string.Empty;
-
-            string targetDirectory = ReadRequiredValue("Destination directory", configuredPath);
-            string projectName = ReadRequiredValue("Project name", configuredName);
+            string targetDirectory = ReadAndRememberValue("Destination directory", "TiaPortal:NewProjectPath");
+            string projectName = ReadAndRememberValue("Project name", "TiaPortal:NewProjectName");
 
             Console.WriteLine("Creating new project (ProjectComposition.Create)...");
             var svc = new ProjectCreationService(connection);
@@ -1164,6 +1183,47 @@ bool exitRequested = false;
             string full = Path.Combine(dir, name, name + ".ap21");
             Console.WriteLine($"Using project: {full}");
             return full;
+        }
+
+        private static string ReadAndRememberValue(string label, string settingsKey)
+        {
+            string configured = AppConfig[settingsKey] ?? string.Empty;
+            string value = ReadRequiredValue(label, configured);
+
+            if (!string.Equals(value, configured, StringComparison.Ordinal))
+                PersistAppSettings((settingsKey, value));
+
+            return value;
+        }
+
+        private static void PersistAppSettings(params (string Key, string Value)[] updates)
+        {
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+            if (!File.Exists(configPath))
+                return;
+
+            JsonNode? root = JsonNode.Parse(File.ReadAllText(configPath));
+            if (root is not JsonObject settings)
+                return;
+
+            foreach ((string key, string value) in updates)
+            {
+                string[] segments = key.Split(':');
+                JsonObject current = settings;
+                for (int i = 0; i < segments.Length - 1; i++)
+                {
+                    if (current[segments[i]] is not JsonObject nested)
+                    {
+                        nested = new JsonObject();
+                        current[segments[i]] = nested;
+                    }
+                    current = nested;
+                }
+                current[segments[segments.Length - 1]] = value;
+            }
+
+            WriteFile(configPath, JsonSerializer.Serialize(settings, ConfigJsonOptions));
+            _appConfig = null;
         }
 
         private static string ReadRequiredValue(string label, string configuredDefault)

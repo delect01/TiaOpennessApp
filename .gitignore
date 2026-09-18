@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Heap snapshots (Node/opencode diagnostics - huge, never commit)
+*.heapsnapshot

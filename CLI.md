@@ -36,6 +36,7 @@ dotnet run -- <command> [arguments...]
 | `--validate-docs` | Valida els documents contra el catàleg (sense tocar TIA) |
 | `--gen-devices-sandbox` | Genera dispositius/estànders en un projecte sandbox |
 | `--generate-project` | Pipeline complet de generació (sense auto-comparació opcional) |
+| `--roundtrip-test` | Prova integral: exporta la font, regenera i compara la topologia |
 | `--diff-topology` | Compara dues topologies exportades (JSON) |
 | `--dump-type-id` | Mostra els `TypeIdentifier` dels dispositius d'un projecte |
 | `--plug-diagnose` | Diagnòstic de connexió (plug) de mòduls a un rack |
@@ -187,39 +188,75 @@ parsejar → validar → generar dispositius/mòduls/subnets/interfícies al pro
 sandbox → desar.
 
 ```
-TiaOpennessApp --generate-project <docsDir> [catalogCsv]
+TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName]
 ```
 
 | Argument | Descripció |
 |----------|------------|
 | `<docsDir>` | Directori amb els CSV |
 | `[catalogCsv]` | Catàleg. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
+| `[targetDirectory]` | Directori destí del projecte. Per defecte: `TiaPortal:NewProjectPath` |
+| `[projectName]` | Nom del projecte. Per defecte: `TiaPortal:NewProjectName` |
 
-**Requisits**: config dels keys `TiaPortal:NewProjectPath`/`NewProjectName`.
+**Requisits**: si no es passen `[targetDirectory]`/`[projectName]`, els keys
+`TiaPortal:NewProjectPath`/`NewProjectName` han d'estar configurats a `appsettings.json`.
 
 **Nota**: connecta a TIA Portal en mode headless.
 
 ---
 
-## 9. `--diff-topology`
+## 9. `--roundtrip-test`
 
-Compara dues topologies exportades (JSON amb llista de `NetworkDeviceInfo`).
+Prova integral del pipeline: obre el projecte font, genera el catàleg i els 4
+CSV de documents, executa la generació completa en un projecte nou, re-exporta
+el resultat i compara la topologia amb la font (report `PASS` / `FAIL`). Els
+dispositius GSD sense llicència es classifiquen com a *gaps coneguts* i no fan
+fallar el test.
 
 ```
-TiaOpennessApp --diff-topology <expectedJson> <actualJson>
+TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<srcProject>` | Projecte `.ap21` font (es genera el catàleg seed i els documents) |
+| `<workDir>` | Directori de treball temporal (per als documents i JSON de comparació) |
+| `<targetDir>` | Directori destí del projecte generat (els CSV es generen a partir de la font) |
+| `<projectName>` | Nom del projecte generat |
+| `[catalogSeed]` | Catàleg inicial. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
+
+**Sortida**: `ROUNDTRIP SUMMARY` amb dispositius, mòduls, subnets i interfícies,
+comparativa de topologia (`TopologyDiff`) i el resultat final `PASS`/`FAIL`
+(exit code `0`/`1`).
+
+**Nota**: connecta a TIA Portal en mode headless i fa diverses obertures/desa
+de projectes.
+
+---
+
+## 10. `--diff-topology`
+
+Compara dues topologies exportades (JSON amb llista de `NetworkDeviceInfo`).
+Opcionalment admet un fitxer JSON amb la llista de noms de dispositius que es
+tracten com a *gaps coneguts* (p. ex. dispositius GSD sense llicència) i no
+compten com a diferències.
+
+```
+TiaOpennessApp --diff-topology <expectedJson> <actualJson> [knownGapsJson]
 ```
 
 | Argument | Descripció |
 |----------|------------|
 | `<expectedJson>` | Topologia esperada (JSON) |
 | `<actualJson>` | Topologia actual (JSON) |
+| `[knownGapsJson]` | JSON amb llista de noms de dispositius a ignorar (opcional) |
 
 **Sortida**: comparativa de dispositius, mòduls, interfícies i subnets, amb
 resum `PASSED` / `NOT PASSED`.
 
 ---
 
-## 10. `--dump-type-id`
+## 11. `--dump-type-id`
 
 Obre un projecte en mode headless i mostra els `TypeIdentifier` de tots els
 dispositius.
@@ -234,7 +271,7 @@ TiaOpennessApp --dump-type-id <projectPath>
 
 ---
 
-## 11. `--plug-diagnose`
+## 12. `--plug-diagnose`
 
 Diagnostica la connexió de mòduls al bastidor `ET200SP_01` / interfície `PN03`
 funamenta en el llistat d'identificadors del catàleg.
@@ -253,7 +290,7 @@ referència de plug.
 
 ---
 
-## 12. `--export-docs`
+## 13. `--export-docs`
 
 Genera els **documents d'entrada** (`Devices.csv`, `Modules.csv`, `Subnets.csv`,
 `Interfaces.csv`) a partir d'un projecte real (o d'una exportació JSON prèvia).
@@ -284,7 +321,7 @@ TiaOpennessApp --export-docs <projectPath|exportJson> [outDocsDir] [catalogCsv]
 
 ---
 
-## 13. `--dump-subnets`
+## 14. `--dump-subnets`
 
 Obre un projecte i mostra les xarxes (subnets) definides.
 
@@ -298,7 +335,7 @@ TiaOpennessApp --dump-subnets <projectPath>
 
 ---
 
-## 14. `--dump-interfaces`
+## 15. `--dump-interfaces`
 
 Obre un projecte i mostra les interfícies de xarxa dels dispositius.
 
@@ -319,8 +356,8 @@ Qualsevol altre valor mostra el missatge de comandaments suportats:
 ```
 Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox |
---generate-project | --diff-topology | --dump-type-id | --plug-diagnose |
---export-docs | --dump-subnets | --dump-interfaces
+--generate-project | --roundtrip-test | --diff-topology | --dump-type-id |
+--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces
 ```
 
 ---
@@ -359,6 +396,9 @@ TiaOpennessApp.exe --export-docs "C:\Users\DPTO_ELECT\Documents\Automation\AE82\
 # Comparar dues topologies (JSON generats externament)
 TiaOpennessApp.exe --diff-topology "topologia\esperada.json" "topologia\actual.json"
 
+# Prova integral (font -> export -> generació -> comparació)
+TiaOpennessApp.exe --roundtrip-test "..\Automation\AE82\AE82.ap21" "imports\rt" "..\Automation" "RT_New"
+
 # Generar la plantilla XLSX
 TiaOpennessApp.exe --generate-template "imports\template.xlsx"
 
@@ -370,7 +410,7 @@ TiaOpennessApp.exe --xlsx-to-csv "imports\project.xlsx" "imports\generated"
 ```
 
 > **Nota**: les comandes que obren o generen projectes (`--gen-devices-sandbox`,
-> `--generate-project`, `--dump-type-id`, `--plug-diagnose`,
+> `--generate-project`, `--roundtrip-test`, `--dump-type-id`, `--plug-diagnose`,
 > `--export-docs`, `--dump-subnets`, `--dump-interfaces`) requereixen TIA Portal
 > V21 amb Openness instal·lat, l'usuari al grup `Siemens TIA Openness` i
 > l'executable a l'AllowList (executar `fix_allowlist.bat` com a administrador

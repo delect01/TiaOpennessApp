@@ -3,7 +3,7 @@
 > Tracking document for the `TiaOpennessApp` project.
 > Each phase has a verification/approval gate. Tick the boxes as they are
 > completed and update the **Global progress** table.
-> Last update: 2026-09-15
+> Last update: 2026-09-18
 > See [`README.md`](./README.md) for the current state of the application.
 
 ---
@@ -134,7 +134,7 @@ Output:
 - [x] Slot occupancy detection via `target.Items.Find(slot)` (idempotency); `CanPlugNew` first.
 - [x] Skip the device root item and modules without slot (e.g. BA) with justified skip.
 - [x] CLI `--plug-diagnose <projectPath>` (free slots + CanPlugNew per identifier).
-- [x] Export with `PositionNumber` per module (`--export-project` added).
+- [x] `PositionNumber` in the export; `--export-project` (renamed `--export-docs` in D1) added.
 - [x] Real AE82 slots discovered: IM@0, BA@127, DQ@1, DI@2, Server@3 -> `Modules.csv` fixed (were 1/4/5/63).
 - [x] Real test: DQ16@1, DI16@2, Server@3 plugged; re-run idempotent (0 plugged, 6 skips); export = real positions.
 
@@ -227,3 +227,6 @@ Offline tool: `--diff-topology <expected.json> <actual.json>`.
 | 2026-09-16 | D1 | Round-trip real amb TIA PASSED: `--generate-project` des de `imports\docs` → AE82_New (2 devices, 3 mòduls plugueats, 1 subnet, 3 interfícies; 0 errors) + `--diff-topology` real vs sandbox: 0 diferències dures, 3 explicades (naming). Approved. |
 | 2026-09-16 | P5 | Pipeline amb dades completes d'AE82 (imports\Devices/Modules/Subnets/Interfaces.csv, 15 dispositius): **Siemens OK** (CPU21 + ETH03/04/05 ET200SP, 65 mòduls plugueats, 2 subxarxes). `Identifier` del catàleg omplert amb els TypeIdentifier reals de TIA via `--dump-type-id` sobre TEST_TIAO (`GSD:.../D`, `OrderNumber:.../Vfw`). |
 | 2026-09-16 | GSD | **Limitació detectada**: els 11 dispositius GSD de tercers (SEW UFRXXB ×3, DFE MDX61B+DFE32B ×7, FANUC ×1) NO es poden crear via `CreateWithItem` (Openness) amb cap error de codi: TIA retorna `Necessary license 'gsdml-...xml' is missing` tant en mode headless com en attach. Es confirmen **creables des de la GUI de TIA** (test TEST_TIAO_2: SEW + FANUC inserits i compilats sense error). Conclusió: restricció de llicències GSD aplicada per TIA a la via API; no és un defecte del pipeline. Els GSD s'afegiran manualment des de la GUI. |
+| 2026-09-17 | D1 | Commit `Generación CSV/Excel, validación y nuevos servicios`: afegit `--roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]` (obrir font → generar catàleg i 4 CSVs → generació completa → re-export → `TopologyDiff` contra la font; gaps GSD classificats com a coneguts; exit code PASS/FAIL). Menú principal consolidat (1. Obrir / 2. Crear / 3. Generar / 0. Sortir) amb submenú de projecte que inclou l'opció 4 "Generate Catalog → Catalog.csv". |
+| 2026-09-18 | D2 | Working tree: els valors teclejats al menú (rutes/noms) es persisteixen a `appsettings.json` (`ReadAndRememberValue`/`PersistAppSettings`); el bucle del menú recupera errors amb "Press any key to continue" sense tancar l'aplicació; fallada de connexió amb missatge clar i sortida. CLI.md actualitzat amb `--roundtrip-test`, signatura ampliada de `--generate-project` (targetDirectory/projectName) i arg `[knownGapsJson]` de `--diff-topology`. |
+| 2026-09-18 | D2 | Config keys: la clau històrica `OutputPath` (P0) queda substituïda per la secció `Export:*` (`DocsPath`, `DevicesPath`, `ModulesPath`, `SubnetsPath`, `InterfacesPath`, `CatalogPath`, `TemplatePath`) usada per `--export-docs`, `--dump-*` i la resolució de catàleg. Es manté `Import:*` per als documents d'entrada. |
