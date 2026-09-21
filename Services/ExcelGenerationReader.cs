@@ -31,6 +31,8 @@ namespace TiaOpennessApp.Services
                 result.Document.Modules = ReadModules(workbook, result.Issues);
                 result.Document.Subnets = ReadSubnets(workbook, result.Issues);
                 result.Document.Interfaces = ReadInterfaces(workbook, result.Issues);
+                result.Document.IoTags = ReadIoTags(workbook, result.Issues);
+                result.Document.ModuleAddresses = ReadModuleAddresses(workbook, result.Issues);
             }
 
             return result;
@@ -112,6 +114,48 @@ namespace TiaOpennessApp.Services
                 if (RowIsEmpty(ws, row, header.Length))
                     continue;
                 list.Add(GenerationRowParsing.ParseInterfaceRow(header, Getter(ws, row), source, row, issues.Add));
+            }
+            return list;
+        }
+
+        private static List<IoTagSpec> ReadIoTags(XLWorkbook workbook, List<ParseIssue> issues)
+        {
+            var list = new List<IoTagSpec>();
+            var ws = GetWorksheet(workbook, GenerationColumns.IoTags, issues);
+            if (ws == null) return list;
+
+            string source = GenerationColumns.IoTags;
+            var required = new[] { GenerationColumns.Device, GenerationColumns.Name, GenerationColumns.Type, GenerationColumns.Address };
+            var header = GenerationRowParsing.ValidateHeader(ReadHeader(ws), source, required, issues.Add);
+            if (header == null) return list;
+
+            int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+            for (int row = 2; row <= lastRow; row++)
+            {
+                if (RowIsEmpty(ws, row, header.Length))
+                    continue;
+                list.Add(GenerationRowParsing.ParseTagRow(header, Getter(ws, row), source, row, issues.Add));
+            }
+            return list;
+        }
+
+        private static List<ModuleAddressSpec> ReadModuleAddresses(XLWorkbook workbook, List<ParseIssue> issues)
+        {
+            var list = new List<ModuleAddressSpec>();
+            var ws = GetWorksheet(workbook, GenerationColumns.ModuleAddresses, issues);
+            if (ws == null) return list;
+
+            string source = GenerationColumns.ModuleAddresses;
+            var required = new[] { GenerationColumns.Device, GenerationColumns.ModuleName, GenerationColumns.IoType };
+            var header = GenerationRowParsing.ValidateHeader(ReadHeader(ws), source, required, issues.Add);
+            if (header == null) return list;
+
+            int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+            for (int row = 2; row <= lastRow; row++)
+            {
+                if (RowIsEmpty(ws, row, header.Length))
+                    continue;
+                list.Add(GenerationRowParsing.ParseModuleAddressRow(header, Getter(ws, row), source, row, issues.Add));
             }
             return list;
         }

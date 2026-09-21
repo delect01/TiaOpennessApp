@@ -50,6 +50,8 @@ namespace TiaOpennessApp.Services
                 WriteModules(workbook.AddWorksheet(GenerationColumns.Modules), document.Modules);
                 WriteSubnets(workbook.AddWorksheet(GenerationColumns.Subnets), document.Subnets);
                 WriteInterfaces(workbook.AddWorksheet(GenerationColumns.Interfaces), document.Interfaces);
+                WriteIoTags(workbook.AddWorksheet(GenerationColumns.IoTags), document.IoTags);
+                WriteModuleAddresses(workbook.AddWorksheet(GenerationColumns.ModuleAddresses), document.ModuleAddresses);
                 workbook.SaveAs(path);
             }
         }
@@ -128,6 +130,44 @@ namespace TiaOpennessApp.Services
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.SubnetMask)).Value = rows[i].SubnetMask;
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.PnDeviceName)).Value = rows[i].PnDeviceName;
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.MasterIoSystem)).Value = rows[i].MasterIoSystem;
+            }
+        }
+
+        private void WriteIoTags(IXLWorksheet ws, List<IoTagSpec> rows)
+        {
+            WriteHeader(ws, GenerationColumns.IoTagsColumns);
+            SetWidths(ws, new[] { 12, 12, 22, 22, 16, 16, 10, 10, 24 });
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                int r = 2 + i;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.Device)).Value = rows[i].Device;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.IoDevice)).Value = rows[i].IoDevice;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.ModuleName)).Value = rows[i].ModuleName;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.SubModuleName)).Value = rows[i].SubModuleName;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.TagTable)).Value = rows[i].TagTable;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.Name)).Value = rows[i].Name;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.Type)).Value = rows[i].Type;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.Address)).Value = rows[i].Address;
+                ws.Cell(r, Column(GenerationColumns.IoTagsColumns, GenerationColumns.Comment)).Value = rows[i].Comment;
+            }
+        }
+
+        private void WriteModuleAddresses(IXLWorksheet ws, List<ModuleAddressSpec> rows)
+        {
+            WriteHeader(ws, GenerationColumns.ModuleAddressesColumns);
+            SetWidths(ws, new[] { 12, 22, 22, 24, 8, 14, 8 });
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                int r = 2 + i;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.Device)).Value = rows[i].Device;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.ModuleName)).Value = rows[i].ModuleName;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.SubModuleName)).Value = rows[i].SubModuleName;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.TypeIdentifier)).Value = rows[i].TypeIdentifier;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.IoType)).Value = rows[i].IoType;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.StartAddress)).Value = rows[i].StartAddress;
+                ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.Length)).Value = rows[i].Length;
             }
         }
 

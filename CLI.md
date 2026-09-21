@@ -66,16 +66,23 @@ TiaOpennessApp --gen-catalog-from-export <exportJson> [catalogCsv]
 
 ## 2. `--generate-template`
 
-Genera la plantilla XLSX buida per recopilar documents.
+Genera la plantilla XLSX **preomplerta** amb el contingut dels CSV de documents
+del directori (incloent-hi `IoTags.csv` i `ModuleAddresses.csv` si existeixen),
+amb els desplegables del catàleg a les columnes corresponents.
 
 ```
-TiaOpennessApp --generate-template <outXlsx> [catalogCsv]
+TiaOpennessApp --generate-template <outXlsx> [docsDir] [catalogCsv]
 ```
 
 | Argument | Descripció |
 |----------|------------|
 | `<outXlsx>` | Ruta del fitxer XLSX de sortida |
+| `[docsDir]` | Directori amb els CSV (`Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`, `IoTags.csv`, `ModuleAddresses.csv`). Per defecte: `Import:DocsPath` |
 | `[catalogCsv]` | Catàleg font. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
+
+**Nota**: si el parseig CSV té errors, no es genera la plantilla. `IoTags.csv` i
+`ModuleAddresses.csv` són opcionals (si no existeixen surten avisos i les
+fullses corresponents queden buides).
 
 ---
 
@@ -101,8 +108,8 @@ TiaOpennessApp --csv-to-xlsx <docsDir> <outXlsx> [catalogCsv]
 ## 4. `--xlsx-to-csv`
 
 Operació inversa de `--csv-to-xlsx`: llegeix un XLSX de documents i genera els
-4 fitxers CSV (`Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`)
-en un directori de sortida.
+6 fitxers CSV (`Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`,
+`IoTags.csv`, `ModuleAddresses.csv`) en un directori de sortida.
 
 ```
 TiaOpennessApp --xlsx-to-csv <inXlsx> <outDocsDir>
@@ -111,7 +118,7 @@ TiaOpennessApp --xlsx-to-csv <inXlsx> <outDocsDir>
 | Argument | Descripció |
 |----------|------------|
 | `<inXlsx>` | Ruta del XLSX d'entrada |
-| `<outDocsDir>` | Directori on es desaran els CSV (el directori `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`) |
+| `<outDocsDir>` | Directori on es desaran els CSV (el directori `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`, `IoTags.csv`, `ModuleAddresses.csv`) |
 
 **Nota**: si el parseig XLSX té errors, no es generen els CSV. El directori de
 sortida es crea si no existeix.
@@ -406,13 +413,15 @@ Les comandes que accepten `[catalogCsv]` opcional el resolen així:
 2. Si no: `<directori del .exe>/catalog/Catalog.csv` (p. ex.
    `TiaOpennessApp\bin\Debug\net48\catalog\Catalog.csv`).
 
-`--csv-to-xlsx` i les comandes de generació esperen dins de `<docsDir>` els
-fitxers amb noms fixos:
+`--csv-to-xlsx`, `--generate-template` i les comandes de generació esperen dins
+de `<docsDir>` els fitxers amb noms fixos:
 
 - `Devices.csv`
 - `Modules.csv`
 - `Subnets.csv`
 - `Interfaces.csv`
+- `IoTags.csv` (opcional)
+- `ModuleAddresses.csv` (opcional)
 
 El directori de documents per defecte en mode de menú és el valor de
 `Import:DocsPath` (`imports`).

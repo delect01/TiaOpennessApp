@@ -37,16 +37,6 @@ namespace TiaOpennessApp.Services
             _catalog = catalog ?? new List<CatalogEntry>();
         }
 
-        public DocsExportReport Export(List<NetworkDeviceInfo>? devices)
-        {
-            return Export(devices, null, null);
-        }
-
-        public DocsExportReport Export(List<NetworkDeviceInfo>? devices, List<IoTagSpec>? ioTags)
-        {
-            return Export(devices, ioTags, null);
-        }
-
         public DocsExportReport Export(List<NetworkDeviceInfo>? devices, List<IoTagSpec>? ioTags, List<ModuleAddressSpec>? moduleAddresses)
         {
             var report = new DocsExportReport { OutputDir = _docsDir };

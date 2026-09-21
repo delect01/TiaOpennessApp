@@ -199,17 +199,38 @@ namespace TiaOpennessApp
             {
                 if (args.Length < 2)
                 {
-                    Console.WriteLine("Usage: TiaOpennessApp --generate-template <outXlsx> [catalogCsv]");
+                    Console.WriteLine("Usage: TiaOpennessApp --generate-template <outXlsx> [docsDir] [catalogCsv]");
                     return;
                 }
 
                 string outPath = args[1];
-                string catalogPath = args.Length >= 3
+                string docsDir = args.Length >= 3
                     ? args[2]
+                    : AppConfig["Import:DocsPath"] ?? string.Empty;
+                string catalogPath = args.Length >= 4
+                    ? args[3]
                     : ResolveCatalogPath();
 
-                new ExcelTemplateGenerator(catalogPath).SaveTemplate(outPath);
-                Console.WriteLine($"Template saved: {outPath}");
+                if (string.IsNullOrWhiteSpace(docsDir) || !Directory.Exists(docsDir))
+                {
+                    Console.WriteLine($"Docs directory not found: {docsDir}");
+                    return;
+                }
+
+                GenerationParseResult csvResult = ReadCsvDocs(docsDir);
+                PrintIssues(csvResult.Issues);
+
+                if (csvResult.HasErrors)
+                {
+                    Console.WriteLine("Cannot generate template: CSV has errors.");
+                    return;
+                }
+
+                new ExcelTemplateGenerator(catalogPath).SaveDocument(outPath, csvResult.Document);
+                Console.WriteLine($"Template saved: {outPath} " +
+                                  $"(devices={csvResult.Document.Devices.Count}, modules={csvResult.Document.Modules.Count}, " +
+                                  $"subnets={csvResult.Document.Subnets.Count}, interfaces={csvResult.Document.Interfaces.Count}, " +
+                                  $"iotags={csvResult.Document.IoTags.Count}, moduleAddresses={csvResult.Document.ModuleAddresses.Count})");
                 return;
             }
 
@@ -266,7 +287,8 @@ namespace TiaOpennessApp
                 new CsvGenerationWriter(docsDir).Write(xlsxResult.Document);
                 Console.WriteLine($"CSVs saved to: {docsDir} " +
                                   $"(devices={xlsxResult.Document.Devices.Count}, modules={xlsxResult.Document.Modules.Count}, " +
-                                  $"subnets={xlsxResult.Document.Subnets.Count}, interfaces={xlsxResult.Document.Interfaces.Count})");
+                                  $"subnets={xlsxResult.Document.Subnets.Count}, interfaces={xlsxResult.Document.Interfaces.Count}, " +
+                                  $"iotags={xlsxResult.Document.IoTags.Count}, moduleAddresses={xlsxResult.Document.ModuleAddresses.Count})");
                 return;
             }
 
@@ -1405,8 +1427,11 @@ namespace TiaOpennessApp
             Console.WriteLine("Extracting I/O tags from the open project...");
             var tags = new TagsExportService(connection).ExportIoTags();
             Console.WriteLine($"  {tags.Count} I/O tag(s) trobats.");
+            Console.WriteLine("Extracting hardware addresses from the open project...");
+            var moduleAddresses = new TagsExportService(connection).ExportModuleAddresses();
+            Console.WriteLine($"  {moduleAddresses.Count} hw address(es) trobades.");
 
-            var report = new DocsExportService(docsDir, catalog).Export(devices, tags);
+            var report = new DocsExportService(docsDir, catalog).Export(devices, tags, moduleAddresses);
             Console.WriteLine();
             Console.WriteLine($"Docs generats a: {report.OutputDir}");
             Console.WriteLine($"  Devices:    {report.Devices}");
@@ -1414,6 +1439,7 @@ namespace TiaOpennessApp
             Console.WriteLine($"  Subnets:    {report.Subnets}");
             Console.WriteLine($"  Interfaces: {report.Interfaces}");
             Console.WriteLine($"  IoTags:     {report.Tags}");
+            Console.WriteLine($"  HwAddr:     {report.ModuleAddresses}");
 
             if (report.TypeKeysMissing.Count > 0)
             {
