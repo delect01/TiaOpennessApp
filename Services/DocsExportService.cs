@@ -12,6 +12,8 @@ namespace TiaOpennessApp.Services
         public int Modules { get; set; }
         public int Subnets { get; set; }
         public int Interfaces { get; set; }
+        public int Tags { get; set; }
+        public int ModuleAddresses { get; set; }
         public List<string> TypeKeysResolved = new List<string>();
         public List<string> TypeKeysMissing = new List<string>();
         public string OutputDir { get; set; } = string.Empty;
@@ -36,6 +38,16 @@ namespace TiaOpennessApp.Services
         }
 
         public DocsExportReport Export(List<NetworkDeviceInfo>? devices)
+        {
+            return Export(devices, null, null);
+        }
+
+        public DocsExportReport Export(List<NetworkDeviceInfo>? devices, List<IoTagSpec>? ioTags)
+        {
+            return Export(devices, ioTags, null);
+        }
+
+        public DocsExportReport Export(List<NetworkDeviceInfo>? devices, List<IoTagSpec>? ioTags, List<ModuleAddressSpec>? moduleAddresses)
         {
             var report = new DocsExportReport { OutputDir = _docsDir };
             if (devices == null || devices.Count == 0)
@@ -100,6 +112,10 @@ namespace TiaOpennessApp.Services
 
             doc.Subnets.AddRange(BuildSubnets(devices));
             BuildInterfaces(devices, doc);
+            if (ioTags != null)
+                doc.IoTags.AddRange(ioTags);
+            if (moduleAddresses != null)
+                doc.ModuleAddresses.AddRange(moduleAddresses);
 
             var writer = new CsvGenerationWriter(_docsDir);
             writer.Write(doc);
@@ -108,6 +124,8 @@ namespace TiaOpennessApp.Services
             report.Modules = doc.Modules.Count;
             report.Subnets = doc.Subnets.Count;
             report.Interfaces = doc.Interfaces.Count;
+            report.Tags = doc.IoTags.Count;
+            report.ModuleAddresses = doc.ModuleAddresses.Count;
             return report;
         }
 

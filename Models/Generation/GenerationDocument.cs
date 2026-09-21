@@ -8,5 +8,7 @@ namespace TiaOpennessApp.Models.Generation
         public List<ModuleSpec> Modules { get; set; } = new List<ModuleSpec>();
         public List<SubnetSpec> Subnets { get; set; } = new List<SubnetSpec>();
         public List<InterfaceSpec> Interfaces { get; set; } = new List<InterfaceSpec>();
+        public List<IoTagSpec> IoTags { get; set; } = new List<IoTagSpec>();
+        public List<ModuleAddressSpec> ModuleAddresses { get; set; } = new List<ModuleAddressSpec>();
     }
 }

@@ -2,10 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Win32;
 using Siemens.Engineering;
+using Siemens.Engineering.HW;
+using Siemens.Engineering.HW.Features;
 using TiaOpennessApp.Models;
 using TiaOpennessApp.Models.Generation;
 using TiaOpennessApp.Services;
@@ -155,6 +161,12 @@ namespace TiaOpennessApp
         private static void RunCliMode(string[] args)
         {
             string command = args[0].ToLowerInvariant();
+
+            if (command == "--check-allowlist")
+            {
+                CheckAllowlist();
+                return;
+            }
 
             if (command == "--gen-catalog-from-export")
             {
@@ -555,11 +567,14 @@ namespace TiaOpennessApp
                     : ResolveCatalogPath();
 
                 List<NetworkDeviceInfo> exportDevices;
+                List<IoTagSpec>? exportTags = null;
+                List<ModuleAddressSpec>? exportModuleAddresses = null;
                 if (sourcePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && File.Exists(sourcePath))
                 {
                     exportDevices = JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(sourcePath), JsonOptions)
                                     ?? new List<NetworkDeviceInfo>();
                     Console.WriteLine($"Font: exportació JSON ({exportDevices.Count} dispositiu(s))");
+                    Console.WriteLine("  (avís) els I/O tags només es poden extreure d'un projecte obert, no d'un JSON.");
                 }
                 else
                 {
@@ -568,18 +583,22 @@ namespace TiaOpennessApp
                     docsConnection.OpenProject(sourcePath);
                     Console.WriteLine($"Font: projecte {docsConnection.Project.Name}");
                     exportDevices = new DevicesAndNetworksService(docsConnection.Project).ExportNetworkDevices();
+                    exportTags = new TagsExportService(docsConnection.Project).ExportIoTags();
+                    exportModuleAddresses = new TagsExportService(docsConnection.Project).ExportModuleAddresses();
                 }
 
                 var catalog = CatalogService.Load(catalogPath);
                 Console.WriteLine($"Catàleg: {catalog.Count} entrada(s)");
 
-                var docsReport = new DocsExportService(docsDir, catalog).Export(exportDevices);
+                var docsReport = new DocsExportService(docsDir, catalog).Export(exportDevices, exportTags, exportModuleAddresses);
                 Console.WriteLine();
                 Console.WriteLine($"Docs generats a: {docsReport.OutputDir}");
                 Console.WriteLine($"  Devices:    {docsReport.Devices}");
                 Console.WriteLine($"  Modules:    {docsReport.Modules}");
                 Console.WriteLine($"  Subnets:    {docsReport.Subnets}");
                 Console.WriteLine($"  Interfaces: {docsReport.Interfaces}");
+                Console.WriteLine($"  IoTags:     {docsReport.Tags}");
+                Console.WriteLine($"  HwAddr:     {docsReport.ModuleAddresses}");
                 return;
             }
 
@@ -615,11 +634,44 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--dump-tags")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-tags <projectPath>");
+                    return;
+                }
+
+                using var dumpTagsConnection = new TiaConnection();
+                dumpTagsConnection.ConnectHeadless();
+                dumpTagsConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {dumpTagsConnection.Project.Name}");
+                Console.WriteLine("═══ I/O TAGS DIAGNOSTICS ═══");
+                new TagsExportService(dumpTagsConnection).DumpDiagnostics();
+                return;
+            }
+
+            if (command == "--dump-hw-items")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-hw-items <projectPath> [deviceName]");
+                    return;
+                }
+
+                using var dumpHwConnection = new TiaConnection();
+                dumpHwConnection.ConnectHeadless();
+                dumpHwConnection.OpenProject(args[1]);
+                string? filter = args.Length >= 3 ? args[2] : null;
+                DumpHwItems(dumpHwConnection.Project, filter);
+                return;
+            }
+
             Console.WriteLine($"Unknown command: {args[0]}");
             Console.WriteLine("Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx | " +
                               "--xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox | " +
                               "--generate-project | --roundtrip-test | --diff-topology | --dump-type-id | " +
-                              "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces");
+                              "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir)
@@ -629,7 +681,9 @@ namespace TiaOpennessApp
                 GetPath("Devices.csv"),
                 GetPath("Modules.csv"),
                 GetPath("Subnets.csv"),
-                GetPath("Interfaces.csv"));
+                GetPath("Interfaces.csv"),
+                GetPath("IoTags.csv"),
+                GetPath("ModuleAddresses.csv"));
             return reader.Read();
         }
 
@@ -706,6 +760,8 @@ namespace TiaOpennessApp
             public List<ModuleGenerationItemReport> Modules { get; set; } = new();
             public List<SubnetGenerationItemReport> Subnets { get; set; } = new();
             public List<InterfaceGenerationItemReport> Interfaces { get; set; } = new();
+            public List<TagGenerationItemReport> Tags { get; set; } = new();
+            public List<ModuleAddressGenerationItemReport> HwAddresses { get; set; } = new();
         }
 
         private static GenerationRunResult? RunFullGenerationPipeline(
@@ -782,6 +838,47 @@ namespace TiaOpennessApp
                 .Generate(parseResult.Document);
             PrintInterfaceReports(interfaceReports);
 
+            Console.WriteLine("\nPausa 1: desant i reobrint perquè TIA materialitzi les adreces I/Q dels mòduls...");
+            project.Save();
+            string savedPath = project.Path!.FullName;
+            Console.WriteLine($"   (guardat a {savedPath})");
+            bool reopened = false;
+            for (int attempt = 1; attempt <= 6 && !reopened; attempt++)
+            {
+                try
+                {
+                    connection.ForceCloseProject();
+                    connection.OpenProject(savedPath);
+                    project = connection.Project;
+                    reopened = true;
+                }
+                catch (Exception closeEx)
+                {
+                    Console.WriteLine($"   (intent {attempt}/6 de reobertura fallit: {closeEx.Message}; es reintenta en 5s)");
+                    System.Threading.Thread.Sleep(5000);
+                }
+            }
+
+            if (reopened)
+            {
+                Console.WriteLine("   reobert OK: les adreces dels mòduls ja estan materialitzades.");
+            }
+            else
+            {
+                Console.WriteLine("   (avís) no s'ha pogut reobrir; es continua amb el projecte en memòria. " +
+                                  "Si el pas HW no veu adreces, ho reportarà com abans.");
+            }
+
+            Console.WriteLine("\n═══ HW ADDRESS GENERATION ═══");
+            var hwAddressReports = new ModuleAddressesGenerationService(project)
+                .Generate(parseResult.Document.ModuleAddresses);
+            PrintHwAddressReports(hwAddressReports);
+
+            Console.WriteLine("\n═══ I/O TAG GENERATION ═══");
+            var tagReports = new TagsGenerationService(project)
+                .Generate(parseResult.Document.IoTags);
+            PrintTagReports(tagReports);
+
             project.Save();
             Console.WriteLine("\nProjecte desat.");
 
@@ -790,6 +887,8 @@ namespace TiaOpennessApp
             result.Modules = moduleReports;
             result.Subnets = subnetReports;
             result.Interfaces = interfaceReports;
+            result.Tags = tagReports;
+            result.HwAddresses = hwAddressReports;
 
             Console.WriteLine("\nPipeline acabat.");
             return result;
@@ -831,9 +930,14 @@ namespace TiaOpennessApp
             CatalogService.Save(catalogPath, catalog);
             Console.WriteLine($"Catàleg: {seed.Count} seed + {candidates.Count} candidats -> {catalog.Count} entrades a {catalogPath}");
 
-            var docsReport = new DocsExportService(workDir, catalog).Export(sourceDevices);
+            List<IoTagSpec> sourceTags = new TagsExportService(connection.Project).ExportIoTags();
+            List<ModuleAddressSpec> sourceModuleAddresses =
+                new TagsExportService(connection.Project).ExportModuleAddresses();
+            var docsReport = new DocsExportService(workDir, catalog).Export(sourceDevices, sourceTags, sourceModuleAddresses);
             Console.WriteLine($"Docs a {workDir}: {docsReport.Devices} devices, {docsReport.Modules} modules, " +
-                              $"{docsReport.Subnets} subnets, {docsReport.Interfaces} interfaces.");
+                              $"{docsReport.Subnets} subnets, {docsReport.Interfaces} interfaces, " +
+                              $"{docsReport.Tags} I/O tags, {docsReport.ModuleAddresses} hw adreces.");
+            Console.WriteLine("  (info) els I/O tags i les adreces de maquinari s'exporten i es regeneraran al pas 4.");
             if (docsReport.TypeKeysMissing.Count > 0)
                 Console.WriteLine($"  (avís) TypeKeys no resolts: {string.Join(", ", docsReport.TypeKeysMissing)}");
 
@@ -877,11 +981,35 @@ namespace TiaOpennessApp
             int interfaceErrors = gen.Interfaces.Count(r => r.Error != null);
             int subnetErrors = gen.Subnets.Count(r => r.Error != null);
 
+            int tagErrors = gen.Tags.Count(r => r.Error != null);
+            int tagCreated = gen.Tags.Count(r => r.Created);
+            int tagSkipped = gen.Tags.Count(r => r.Skipped);
+
+            // Re-export dels tags generats per verificar-los amb la font.
+            List<IoTagSpec> actualTags = new TagsExportService(gen.Project).ExportIoTags();
+            int tagMismatch = 0;
+            if (sourceTags.Count > 0 && actualTags.Count != sourceTags.Count)
+                tagMismatch = sourceTags.Count - actualTags.Count;
+
+            // Re-export de les adreces de maquinari per verificar-les amb la font.
+            List<ModuleAddressSpec> actualModuleAddresses =
+                new TagsExportService(gen.Project).ExportModuleAddresses();
+            int hwAddressErrors = gen.HwAddresses.Count(r => r.Error != null);
+            int hwAddressMismatch = 0;
+            if (sourceModuleAddresses.Count > 0)
+                hwAddressMismatch = CompareHwAddresses(sourceModuleAddresses, actualModuleAddresses);
+
             Console.WriteLine("\n═══ ROUNDTRIP SUMMARY ═══");
             Console.WriteLine($"  Devices  : {gen.Devices.Count} total | {hardDeviceErrors} errors durs | {gsdDeviceErrors} GSD coneguts (licència)");
             Console.WriteLine($"  Modules  : {moduleErrors} errors (derivats de dispositius GSD no creats)");
             Console.WriteLine($"  Subnets  : {subnetErrors} errors");
             Console.WriteLine($"  Interf.  : {interfaceErrors} errors");
+            Console.WriteLine($"  Tags     : {tagCreated} creats | {tagSkipped} ja existien | {tagErrors} errors | " +
+                              $"re-exportats {actualTags.Count} (font: {sourceTags.Count})" +
+                              (tagMismatch > 0 ? $" | DIFERÈNCIA +{tagMismatch}" : string.Empty));
+            Console.WriteLine($"  HwAddr   : {hwAddressErrors} errors | re-exportades {actualModuleAddresses.Count} " +
+                              $"(font: {sourceModuleAddresses.Count})" +
+                              (hwAddressMismatch > 0 ? $" | {hwAddressMismatch} discrepàncies" : string.Empty));
             Console.WriteLine($"  Topology : {diff.Differences} diferències | {diff.Explained} explicades " +
                               $"({diff.KnownGaps} GSD esperats) | {diff.DevicesCompared} dispositius comparats");
 
@@ -891,20 +1019,196 @@ namespace TiaOpennessApp
             Environment.ExitCode = pass ? 0 : 1;
         }
 
+        private static void CheckAllowlist()
+        {
+            const string exeName = "TiaOpennessApp.exe";
+
+            string exePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, exeName);
+            string currentHash = ComputeSha1(exePath);
+            bool isAdmin = false;
+            try
+            {
+                var identity = WindowsIdentity.GetCurrent();
+                var principal = new WindowsPrincipal(identity);
+                isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch { }
+
+            Console.WriteLine($"Exe        : {exePath}");
+            Console.WriteLine($"Existeix   : {File.Exists(exePath)}");
+            Console.WriteLine($"SHA1 actual: {currentHash}");
+            Console.WriteLine($"Consola    : {(isAdmin ? "PROVAT AMB ADMIN (elevada)" : "NO elevada")}");
+            Console.WriteLine();
+
+            const string keyPath = @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaOpennessApp.exe\Entry";
+            try
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+                if (key == null)
+                {
+                    Console.WriteLine("AllowList   : NO EXISTEIX -> TIA rebutjarà l'app.");
+                    return;
+                }
+
+                string registeredPath = (key.GetValue("Path") as string) ?? string.Empty;
+                string registeredDate = (key.GetValue("DateModified") as string) ?? string.Empty;
+                string registeredHash = (key.GetValue("FileHash") as string) ?? string.Empty;
+
+                Console.WriteLine($"AllowList OK: {registeredPath}");
+                Console.WriteLine($"  DateModified: {registeredDate}");
+                Console.WriteLine($"  FileHash    : {registeredHash}");
+                Console.WriteLine($"  Coincideix  : {string.Equals(registeredHash, currentHash, StringComparison.OrdinalIgnoreCase)}");
+                Console.WriteLine();
+                Console.WriteLine("Conclusió: " +
+                    (string.Equals(registeredHash, currentHash, StringComparison.OrdinalIgnoreCase)
+                        ? "hash OK -> si falla TIA, el motiu és un altre (elevació o diàleg Openness)."
+                        : "hash DESACTUALITZAT -> reexecuta run_app.bat / run_roundtrip.bat (consola ADMIN)."));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error llegint el registre (cal ADMIN?): {ex.Message}");
+            }
+        }
+
+        private static string ComputeSha1(string filePath)
+        {
+            using var sha1 = SHA1.Create();
+            using var stream = File.OpenRead(filePath);
+            return BitConverter.ToString(sha1.ComputeHash(stream)).Replace("-", string.Empty);
+        }
+
         private static bool IsGsdError(string message)
         {
             string m = message.ToUpperInvariant();
             return m.Contains("LICENSE") || m.Contains("GSDML") || m.Contains("GSD");
         }
 
+        /// <summary>
+        /// Compta les files d'adreces de maquinari de l'origen que no tenen
+        /// contrapartida exacta (dispositiu/mòdul/submòdul/tipus/inici/llargada)
+        /// a la re-exportació del projecte generat. 0 = mapa d'adreces reproduït.
+        /// </summary>
+        private static int CompareHwAddresses(List<ModuleAddressSpec> expected, List<ModuleAddressSpec> actual)
+        {
+            static string Key(ModuleAddressSpec a) =>
+                $"{a.Device}|{a.ModuleName}|{a.SubModuleName}|{a.IoType}|{a.StartAddress}|{a.Length}";
+
+            var actualSet = new HashSet<string>(actual.Select(Key), StringComparer.OrdinalIgnoreCase);
+            return expected.Count(e => !actualSet.Contains(Key(e)));
+        }
+
+        private static void DumpHwItems(Siemens.Engineering.Project project, string? filter)
+        {
+            Console.WriteLine("═══ HW ITEMS DIAGNOSTICS ═══");
+            foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(project))
+            {
+                if (!string.IsNullOrWhiteSpace(filter) &&
+                    !device.Name.Equals(filter, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                Console.WriteLine($"# {device.Name}");
+                try
+                {
+                    foreach (DeviceItem top in device.DeviceItems)
+                        DumpItem(top, 1);
+                }
+                catch (Exception ex) { Console.WriteLine($"  (avís) device items: {ex.Message}"); }
+            }
+        }
+
+        private static void DumpItem(Siemens.Engineering.HW.DeviceItem item, int depth)
+        {
+            string indent = new string(' ', depth * 2);
+            try
+            {
+                Console.WriteLine($"{indent}- {item.Name}  [{SafeString(item.TypeIdentifier)}]");
+            }
+            catch
+            {
+                Console.WriteLine($"{indent}- {item.Name}  [typeid?]");
+            }
+
+            try
+            {
+                var addresses = item.Addresses;
+                if (addresses != null && addresses.Count > 0)
+                {
+                    foreach (Address address in addresses)
+                    {
+                        Console.WriteLine($"{indent}    ADDR {IsIq(address.IoType)} start={SafeInt(address.StartAddress)} " +
+                                          $"len={SafeInt(address.Length)}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"{indent}    (sense adreces)");
+                }
+            }
+            catch (Exception ex) { Console.WriteLine($"{indent}    (adreces: {ex.Message})"); }
+
+            DumpInterfaceInfo(item, indent);
+
+            try
+            {
+                foreach (DeviceItem child in item.DeviceItems)
+                    DumpItem(child, depth + 1);
+            }
+            catch { }
+        }
+
+        private static void DumpInterfaceInfo(Siemens.Engineering.HW.DeviceItem item, string indent)
+        {
+            try
+            {
+                NetworkInterface? netIf = ((IEngineeringServiceProvider)item).GetService<NetworkInterface>();
+                if (netIf == null)
+                    return;
+
+                string ioSys = "?";
+                try
+                {
+                    var connector = netIf.IoConnectors.Cast<IoConnector>().FirstOrDefault();
+                    ioSys = connector?.ConnectedToIoSystem?.Name ?? "(no IO system)";
+                }
+                catch { }
+
+                string subnet = "-";
+                try
+                {
+                    var node = netIf.Nodes.Cast<Node>().FirstOrDefault();
+                    subnet = node?.ConnectedSubnet?.Name ?? "-";
+                }
+                catch { }
+
+                Console.WriteLine($"{indent}    IF mode={netIf.InterfaceOperatingMode} iosystem={ioSys} subnet={subnet}");
+            }
+            catch { }
+        }
+
+        private static string IsIq(Siemens.Engineering.HW.AddressIoType ioType)
+        {
+            switch (ioType)
+            {
+                case Siemens.Engineering.HW.AddressIoType.Input: return "I";
+                case Siemens.Engineering.HW.AddressIoType.Output: return "Q";
+                default: return ioType.ToString();
+            }
+        }
+
+        private static int SafeInt(object? value)
+        {
+            try { return Convert.ToInt32(value, System.Globalization.CultureInfo.InvariantCulture); }
+            catch { return 0; }
+        }
+
+        private static string SafeString(object? value)
+        {
+            try { return value?.ToString() ?? string.Empty; }
+            catch { return string.Empty; }
+        }
+
         private static void PrintTopologyDiff(TopologyDiffReport diff)
         {
-            int ok = diff.Items.Count(i => i.Level == TopologyDiffLevel.Ok);
-            Console.WriteLine($"  Devices:     {diff.DevicesCompared} compared " +
-                              $"({diff.KnownGaps} GSD sense llicència - esperats)");
-            Console.WriteLine($"  Modules:     {diff.ModulesCompared} compared");
-            Console.WriteLine($"  Interfaces:  {diff.InterfacesCompared} compared");
-            Console.WriteLine($"  Subnets:     {diff.SubnetsCompared} compared (OK items: {ok})");
 
             foreach (var item in diff.Items)
             {
@@ -1009,6 +1313,53 @@ namespace TiaOpennessApp
             Console.WriteLine($"\nSummary: {connected} connected, {changed} configured, {skipped} skipped, {errors} errors.");
         }
 
+        private static void PrintTagReports(List<TagGenerationItemReport> reports)
+        {
+            if (reports.Count == 0)
+            {
+                Console.WriteLine("  (cap) no hi ha I/O tags per generar.");
+                return;
+            }
+
+            foreach (var r in reports)
+            {
+                if (r.Created)
+                    Console.WriteLine($"  [CREATE] {r.Device}·{r.TagTable}·{r.TagName}");
+                else if (r.Skipped)
+                    Console.WriteLine($"  [EXISTS] {r.Device}·{r.TagTable}·{r.TagName}");
+                else
+                    Console.WriteLine($"  [ERROR ] {r.Device}·{r.TagTable}·{r.TagName}: {r.Error}");
+            }
+
+            int created = reports.Count(r => r.Created);
+            int skipped = reports.Count(r => r.Skipped);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {created} tags creats, {skipped} ja existien, {errors} errors.");
+        }
+
+        private static void PrintHwAddressReports(List<ModuleAddressGenerationItemReport> reports)
+        {
+            if (reports.Count == 0)
+            {
+                Console.WriteLine("  (cap) no hi ha adreces de maquinari per aplicar.");
+                return;
+            }
+
+            foreach (var r in reports)
+            {
+                if (r.Applied)
+                    Console.WriteLine($"  [SET  ] {r.Device}·{r.ModuleName}·{r.SubModuleName} " +
+                                      $"{r.IoType}{r.StartAddress}..+{r.Length} ({r.Message})");
+                else
+                    Console.WriteLine($"  [ERROR] {r.Device}·{r.ModuleName}·{r.SubModuleName} " +
+                                      $"{r.IoType}({r.StartAddress})+: {r.Error}");
+            }
+
+            int applied = reports.Count(r => r.Applied);
+            int errors = reports.Count(r => r.Error != null);
+            Console.WriteLine($"\nSummary: {applied} adreces aplicades, {errors} errors.");
+        }
+
         private static void PrintMenu()
         {
             Console.WriteLine("┌────────────────────────────────────┐");
@@ -1016,7 +1367,7 @@ namespace TiaOpennessApp
             Console.WriteLine("├────────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                   │");
             Console.WriteLine("│  2. Network Devices Tree           │");
-            Console.WriteLine("│  3. Export Docs → 4 CSV files      │");
+            Console.WriteLine("│  3. Export Docs → 5 CSV files       │");
             Console.WriteLine("│  4. Generate Catalog → Catalog.csv │");
             Console.WriteLine("│  0. Exit                           │");
             Console.WriteLine("└────────────────────────────────────┘");
@@ -1051,14 +1402,18 @@ namespace TiaOpennessApp
 
             Console.WriteLine("Extracting network devices from the open project...");
             var devices = new DevicesAndNetworksService(connection).ExportNetworkDevices();
+            Console.WriteLine("Extracting I/O tags from the open project...");
+            var tags = new TagsExportService(connection).ExportIoTags();
+            Console.WriteLine($"  {tags.Count} I/O tag(s) trobats.");
 
-            var report = new DocsExportService(docsDir, catalog).Export(devices);
+            var report = new DocsExportService(docsDir, catalog).Export(devices, tags);
             Console.WriteLine();
             Console.WriteLine($"Docs generats a: {report.OutputDir}");
             Console.WriteLine($"  Devices:    {report.Devices}");
             Console.WriteLine($"  Modules:    {report.Modules}");
             Console.WriteLine($"  Subnets:    {report.Subnets}");
             Console.WriteLine($"  Interfaces: {report.Interfaces}");
+            Console.WriteLine($"  IoTags:     {report.Tags}");
 
             if (report.TypeKeysMissing.Count > 0)
             {

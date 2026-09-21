@@ -27,6 +27,8 @@ namespace TiaOpennessApp.Services
             WriteModules(doc.Modules);
             WriteSubnets(doc.Subnets);
             WriteInterfaces(doc.Interfaces);
+            WriteIoTags(doc.IoTags);
+            WriteModuleAddresses(doc.ModuleAddresses);
         }
 
         private void WriteDevices(List<DeviceSpec> devices)
@@ -122,6 +124,68 @@ namespace TiaOpennessApp.Services
                     csv.WriteField(i.SubnetMask);
                     csv.WriteField(i.PnDeviceName);
                     csv.WriteField(i.MasterIoSystem);
+                    csv.NextRecord();
+                }
+            }
+        }
+
+        private void WriteIoTags(List<IoTagSpec> ioTags)
+        {
+            string path = Path.Combine(_docsDir, "IoTags.csv");
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            using (var csv = new CsvWriter(writer, CreateConfig()))
+            {
+                csv.WriteField(GenerationColumns.Device);
+                csv.WriteField(GenerationColumns.IoDevice);
+                csv.WriteField(GenerationColumns.ModuleName);
+                csv.WriteField(GenerationColumns.SubModuleName);
+                csv.WriteField(GenerationColumns.TagTable);
+                csv.WriteField(GenerationColumns.Name);
+                csv.WriteField(GenerationColumns.Type);
+                csv.WriteField(GenerationColumns.Address);
+                csv.WriteField(GenerationColumns.Comment);
+                csv.NextRecord();
+
+                foreach (var t in ioTags)
+                {
+                    csv.WriteField(t.Device);
+                    csv.WriteField(t.IoDevice);
+                    csv.WriteField(t.ModuleName);
+                    csv.WriteField(t.SubModuleName);
+                    csv.WriteField(t.TagTable);
+                    csv.WriteField(t.Name);
+                    csv.WriteField(t.Type);
+                    csv.WriteField(t.Address);
+                    csv.WriteField(t.Comment);
+                    csv.NextRecord();
+                }
+            }
+        }
+
+        private void WriteModuleAddresses(List<ModuleAddressSpec> addresses)
+        {
+            string path = Path.Combine(_docsDir, "ModuleAddresses.csv");
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            using (var csv = new CsvWriter(writer, CreateConfig()))
+            {
+                csv.WriteField(GenerationColumns.Device);
+                csv.WriteField(GenerationColumns.ModuleName);
+                csv.WriteField(GenerationColumns.SubModuleName);
+                csv.WriteField(GenerationColumns.TypeIdentifier);
+                csv.WriteField(GenerationColumns.IoType);
+                csv.WriteField(GenerationColumns.StartAddress);
+                csv.WriteField(GenerationColumns.Length);
+                csv.NextRecord();
+
+                foreach (var a in addresses)
+                {
+                    csv.WriteField(a.Device);
+                    csv.WriteField(a.ModuleName);
+                    csv.WriteField(a.SubModuleName);
+                    csv.WriteField(a.TypeIdentifier);
+                    csv.WriteField(a.IoType);
+                    csv.WriteField(a.StartAddress);
+                    csv.WriteField(a.Length);
                     csv.NextRecord();
                 }
             }

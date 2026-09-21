@@ -3,7 +3,7 @@
 > Tracking document for the `TiaOpennessApp` project.
 > Each phase has a verification/approval gate. Tick the boxes as they are
 > completed and update the **Global progress** table.
-> Last update: 2026-09-18
+> Last update: 2026-09-21
 > See [`README.md`](./README.md) for the current state of the application.
 
 ---
@@ -26,6 +26,7 @@
 | P7 - Subnets | Done | Yes |
 | P8 - Interfaces and IPs | Done | Yes |
 | P9 - Full flow + auto-comparison | Done | Yes |
+| D3 - I/O tags + hardware address map | Done | Yes |
 | F10+ - Future work | Pending | - |
 
 ---
@@ -197,10 +198,15 @@ Offline tool: `--diff-topology <expected.json> <actual.json>`.
 
 - [ ] Blocks (`PlcBlockComposition.CreateFrom(...)`).
 - [ ] DBs.
-- [ ] Tag tables (`PlcTagComposition.CreateFrom`).
+- [x] Tag tables (`PlcTagComposition.Create`; see `TagsGenerationService` + `IoTags.csv`, done 2026-09-21).
 - [ ] HMI.
 
-> Will be planned as an extension once P9 is approved.
+### Done outside the original plan (2026-09-21)
+
+- [x] **I/O tag export + generation** (`TagsExportService`, `TagsGenerationService`, `IoTags.csv`): 650 tags exported from TEST_TIAO and recreated idempotently in the generated project (`Tags: 650 re-exported, source 650`).
+- [x] **Manual I/Q hardware address map** (`TagsExportService.ExportModuleAddresses`, `ModuleAddressSpec`, `ModuleAddressesGenerationService`, `ModuleAddresses.csv`): reproduces the source sparse byte addressing on the generated project. Global (shared address space) three-pass conflict resolution. Verified: 74 addresses applied; ETH03/ETH04/ETH05 match TEST_TIAO; round-trip `HwAddr` discrepancies = 60 GSD-only rows.
+
+> Blocks, DBs and HMI remain as the next extension.
 
 ---
 
@@ -230,3 +236,7 @@ Offline tool: `--diff-topology <expected.json> <actual.json>`.
 | 2026-09-17 | D1 | Commit `Generación CSV/Excel, validación y nuevos servicios`: afegit `--roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]` (obrir font → generar catàleg i 4 CSVs → generació completa → re-export → `TopologyDiff` contra la font; gaps GSD classificats com a coneguts; exit code PASS/FAIL). Menú principal consolidat (1. Obrir / 2. Crear / 3. Generar / 0. Sortir) amb submenú de projecte que inclou l'opció 4 "Generate Catalog → Catalog.csv". |
 | 2026-09-18 | D2 | Working tree: els valors teclejats al menú (rutes/noms) es persisteixen a `appsettings.json` (`ReadAndRememberValue`/`PersistAppSettings`); el bucle del menú recupera errors amb "Press any key to continue" sense tancar l'aplicació; fallada de connexió amb missatge clar i sortida. CLI.md actualitzat amb `--roundtrip-test`, signatura ampliada de `--generate-project` (targetDirectory/projectName) i arg `[knownGapsJson]` de `--diff-topology`. |
 | 2026-09-18 | D2 | Config keys: la clau històrica `OutputPath` (P0) queda substituïda per la secció `Export:*` (`DocsPath`, `DevicesPath`, `ModulesPath`, `SubnetsPath`, `InterfacesPath`, `CatalogPath`, `TemplatePath`) usada per `--export-docs`, `--dump-*` i la resolució de catàleg. Es manté `Import:*` per als documents d'entrada. |
+| 2026-09-21 | D3 | **I/O tags**: `TagsExportService.ExportIoTags` + `IoTags.csv` (5è/6è document), `IoTagSpec`, `TagsGenerationService` (recrea taules i tags idempotent), `--dump-tags`, pas `I/O TAG GENERATION` al pipeline; `CsvGenerationWriter` i `--export-docs` ampliats. Test real: 650 tags exportats de TEST_TIAO i re-exportats idèntics al generat. |
+| 2026-09-21 | D3 | **Mapa d'adreces de maquinari I/Q**: `TagsExportService.ExportModuleAddresses` + `ModuleAddresses.csv`, `ModuleAddressSpec`, `ModuleAddressesGenerationService`, comparativa `HwAddr` al roundtrip; `--export-docs` i `--generate-project` ampliats. TIA auto-assigna adreces denses en crear maquinari, cal re-assignar `Address.StartAddress` als valors manuals/esparsos de la font. |
+| 2026-09-21 | D3 | **Fix conflictes "address already in use"**: l'espai d'adreces I/Q és **global** (compartit entre ETH03/04/05). Resolució en 3 fases: (A) aparcar pendents en zona alta trobada per *probe*, (A2) aparcar qualsevol altra adreça del projecte que ocupi un rang objectiu, (B) assignar valors finals. Requereix desar+reobrir el projecte abans del pas HW (`RunFullGenerationPipeline`) perquè TIA materialitzi les adreces. Verificat a TIA: ETH03/04/05 coincideixen amb la font; 74 adreces aplicades, 60 errors (GSD). |
+| 2026-09-21 | D3 | **Roundtrip PASS**: `run_roundtrip.bat` → `HwAddr: 60 discrepàncies` (= 60 GSD no creables, 0 errors ETH), `Tags: 650 re-exportats (font 650)`, `Devices: 0 errors durs`, `Subnets: 0`. Resultat: `Automation\result\result.ap21`. |

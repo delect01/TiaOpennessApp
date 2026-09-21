@@ -149,6 +149,40 @@ namespace TiaOpennessApp.Services
                     Error("Interfaces", iface.Device + " / " + iface.InterfaceItem,
                         $"Subxarxa inexistent referenciada: '{iface.Subnet}'.");
             }
+
+            foreach (var tag in doc.IoTags)
+            {
+                if (tag.Device.Length == 0)
+                    continue;
+                if (!deviceNames.Contains(tag.Device))
+                    Error("IoTags", tag.Device + " / " + tag.Name,
+                        $"Tag referenciat a un dispositiu inexistent: '{tag.Device}'.");
+            }
+
+            var moduleKeys = new HashSet<string>(
+                doc.Modules.Select(m => m.Device + "\u0001" + m.ModuleName),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var addr in doc.ModuleAddresses)
+            {
+                if (addr.Device.Length == 0 || addr.ModuleName.Length == 0)
+                    continue;
+                if (!deviceNames.Contains(addr.Device))
+                {
+                    // Els dispositius GSD sense llicència no es crearan; la fila
+                    // d'adreça serà reportada com a ERROR al pas d'aplicació, però
+                    // no ha de bloquejar tota la generació.
+                    Warning("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
+                        $"Dispositiu no present als CSV ('{addr.Device}') o GSD sense llicència.");
+                    continue;
+                }
+                if (!moduleKeys.Contains(addr.Device + "\u0001" + addr.ModuleName))
+                    Warning("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
+                        $"Mòdul no present a Modules.csv ('{addr.ModuleName}') o submòdul GSD intern.");
+                if (addr.IoType != "I" && addr.IoType != "Q")
+                    Error("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
+                        $"IoType invàlid: '{addr.IoType}' (esperat 'I' o 'Q').");
+            }
         }
 
         private void ValidateIpv4(GenerationDocument doc)

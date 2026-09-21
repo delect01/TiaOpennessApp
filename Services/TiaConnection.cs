@@ -82,7 +82,18 @@ namespace TiaOpennessApp.Services
             if (_portal == null)
                 throw new InvalidOperationException("Call Connect first.");
 
-            string fullPath = Path.GetFullPath(projectPath);
+            // Resolve environment variables: treat the argument as an env var name
+            // (e.g. RUTA_DEL_PROJECTE_AP21) if it has no directory separators and
+            // matches an existing environment variable.
+            string resolved = projectPath;
+            if (projectPath.IndexOfAny(new[] { '\\', '/' }) < 0)
+            {
+                string envValue = Environment.GetEnvironmentVariable(projectPath);
+                if (envValue != null)
+                    resolved = envValue;
+            }
+
+            string fullPath = Path.GetFullPath(resolved);
             if (!File.Exists(fullPath))
                 throw new FileNotFoundException($"Project file not found: {projectPath}");
 
@@ -112,7 +123,7 @@ namespace TiaOpennessApp.Services
             // TIA only allows one project open at a time: close the one opened by us first.
             CloseOwnedProject();
 
-            _project = _portal.Projects.Open(new FileInfo(projectPath));
+            _project = _portal.Projects.Open(new FileInfo(fullPath));
             OpenedProject = true;
         }
 
@@ -125,6 +136,20 @@ namespace TiaOpennessApp.Services
             try { _project.Close(); }
             catch { }
             _project = null;
+            OpenedProject = false;
+        }
+
+        /// <summary>
+        /// Closes the project owned by this connection and clears the state WITHOUT swallowing errors,
+        /// so callers can detect and retry when TIA is still busy (e.g. right after Save).
+        /// </summary>
+        public void ForceCloseProject()
+        {
+            if (_project != null)
+            {
+                _project.Close();
+                _project = null;
+            }
             OpenedProject = false;
         }
 

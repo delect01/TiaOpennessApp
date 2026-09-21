@@ -74,7 +74,7 @@ are saved back to `appsettings.json` automatically.
 |--------|-------------|
 | 1. Project Info | Name, version, path, creation date, device count |
 | 2. Network Devices Tree | Console tree of all devices and their network interfaces |
-| 3. Export Docs → 4 CSV files | Generates `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv` from the open project (inverse of the generation pipeline) |
+| 3. Export Docs → 6 CSV files | Generates `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`, `IoTags.csv` and `ModuleAddresses.csv` from the open project (inverse of the generation pipeline; the I/O tags are extracted from the PLC tag tables, and both tags and module addresses are associated to the hardware modules by address range) |
 | 4. Generate Catalog → Catalog.csv | Seeds/merges the catalog from the open project |
 | 0. Exit | Back to the main menu |
 
@@ -83,6 +83,9 @@ are saved back to `appsettings.json` automatically.
 - **Status: complete for Siemens devices; GSD third-party devices require manual insertion.**
   - Siemens (S7-CPU, ET200SP IM+modules, subnets, interfaces): fully automated, verified (CPU21 + ETH03/04/05, 65 modules plugged, 2 subnets).
   - GSD devices (SEW, DFE/MOVIFIT, FANUC): `CreateWithItem` fails with `Necessary license 'gsdml-...' is missing` (Openness enforces GSD licensing on the API path; GUI insertion works). Add them manually from the catalog. See ROADMAP "GSD" change log entry.
+- **Reproduction of the manual I/Q hardware address map** (`ModuleAddresses.csv` + `ModuleAddressesGenerationService`): TIA auto-assigns dense addresses when creating hardware, while the reference projects use manual/sparse byte addresses. The pipeline re-assigns `Address.StartAddress` of every module/submodule to the source values. Verified against TEST_TIAO (74 addresses applied; ETH03/ETH04/ETH05 match the source exactly) and via the headless round-trip (`HwAddr` discrepancies reduced to the 60 GSD-derived rows only).
+  - The I/Q address space is **shared** across I/O devices, so conflicts (`"This address is already being used"`) are resolved **globally** in three passes: (A) park every pending address in a high zone found by probing, (A2) park any other project address (unmapped modules, server modules, other devices) whose range overlaps a target, (B) assign the final sparse values.
+- **I/O tag generation** (`IoTags.csv` + `TagsGenerationService`): recreates the PLC tag tables and their tags (name/type/address/comment), idempotently.
 
 ## Project Structure
 
@@ -94,9 +97,10 @@ TiaOpennessApp/
 │   ├── ProjectService.cs            # Project metadata queries
 │   ├── ProjectCreationService.cs    # Empty project creation via ProjectComposition.Create
 │   ├── DevicesAndNetworksService.cs # Device/interfaces/modules extraction, console tree, JSON export
+│   ├── TagsExportService.cs         # I/O tags extraction (PLC tag tables) + module addresses; association by address range
 │   ├── CatalogService.cs            # Catalog.csv load/save/merge + candidate generation (no TIA)
-│   ├── CsvGenerationReader.cs       # GenerationDocument from the 4 input CSVs
-│   ├── CsvGenerationWriter.cs       # CSV serialization of export documents
+│   ├── CsvGenerationReader.cs       # GenerationDocument from the input CSVs (incl. IoTags, ModuleAddresses)
+│   ├── CsvGenerationWriter.cs       # CSV serialization of export documents (6 CSVs incl. IoTags, ModuleAddresses)
 │   ├── ExcelGenerationReader.cs     # GenerationDocument from XLSX
 │   ├── ExcelTemplateGenerator.cs    # Blank XLSX template with catalog dropdowns
 │   ├── IGenerationReader.cs         # Common read interface
@@ -105,16 +109,18 @@ TiaOpennessApp/
 │   ├── ValidationService.cs         # Dry-run validation rules (names, IPs, slots, catalog, folder)
 │   ├── DevicesGenerationService.cs  # Device create (idempotent, try/catch per item)
 │   ├── ModulesGenerationService.cs  # Module PlugNew per slot (idempotent)
+│   ├── ModuleAddressesGenerationService.cs # Re-assigns Address.StartAddress to the source map (global conflict resolution)
+│   ├── TagsGenerationService.cs     # Recreates PLC tag tables + tags from IoTags (idempotent)
 │   ├── SubnetsGenerationService.cs  # Subnet creation (System:Subnet.Ethernet/Profibus)
 │   ├── InterfacesGenerationService.cs # Node IP/subnet assignment + ConnectToSubnet
 │   ├── TopologyDiffService.cs       # Compares two exported topologies
-│   └── DocsExportService.cs         # Exports the 4 docs CSVs from a project or JSON
+│   └── DocsExportService.cs         # Exports the docs CSVs from a project or JSON
 ├── Models/
 │   ├── NetworkDeviceInfo.cs         # NetworkDeviceInfo, NetworkInterfaceInfo, NetworkModuleInfo
 │   ├── TopologyDiff.cs              # TopologyDiffReport / TopologyDiffItem / KnownGap
 │   └── Generation/                  # GenerationDocument, DeviceSpec, ModuleSpec, SubnetSpec,
-│                                   # InterfaceSpec, CatalogEntry, ParseIssue, GenerationParseResult,
-│                                   # ValidationReport, ValidationIssue
+│                                   # InterfaceSpec, IoTagSpec, ModuleAddressSpec, CatalogEntry,
+│                                   # ParseIssue, GenerationParseResult, ValidationReport, ValidationIssue
 ├── CLI.md                        # Full CLI reference (all commands)
 ├── FUTURE-WORK.md                # Proposed future improvements
 ├── ROADMAP.md                    # Phased execution plan (device generation from documents)
@@ -150,4 +156,6 @@ See [`ROADMAP.md`](./ROADMAP.md) for the phased plan:
 
 - P0–P9: build, import models, reference catalog, CSV/XLSX readers, validator
   + dry-run, and device/module/subnet/interface **generation** in TIA — **all complete and approved**.
-- F10+: PLC blocks, DBs, tag tables and HMI (next steps, same pipeline).
+- Beyond the plan (same pipeline): manual I/Q **hardware address map** reproduction and **I/O tag
+  table** generation — complete and verified via the headless round-trip.
+- F10+: PLC blocks, DBs and HMI (next steps, same pipeline).

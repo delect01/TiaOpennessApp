@@ -15,13 +15,17 @@ namespace TiaOpennessApp.Services
         private readonly string _modulesPath;
         private readonly string _subnetsPath;
         private readonly string _interfacesPath;
+        private readonly string _ioTagsPath;
+        private readonly string _moduleAddressesPath;
 
-        public CsvGenerationReader(string devicesPath, string modulesPath, string subnetsPath, string interfacesPath)
+        public CsvGenerationReader(string devicesPath, string modulesPath, string subnetsPath, string interfacesPath, string ioTagsPath, string moduleAddressesPath)
         {
             _devicesPath = devicesPath;
             _modulesPath = modulesPath;
             _subnetsPath = subnetsPath;
             _interfacesPath = interfacesPath;
+            _ioTagsPath = ioTagsPath;
+            _moduleAddressesPath = moduleAddressesPath;
         }
 
         public GenerationParseResult Read()
@@ -32,6 +36,8 @@ namespace TiaOpennessApp.Services
             result.Document.Modules = ReadModules(_modulesPath, result.Issues);
             result.Document.Subnets = ReadSubnets(_subnetsPath, result.Issues);
             result.Document.Interfaces = ReadInterfaces(_interfacesPath, result.Issues);
+            result.Document.IoTags = ReadIoTags(_ioTagsPath, result.Issues);
+            result.Document.ModuleAddresses = ReadModuleAddresses(_moduleAddressesPath, result.Issues);
 
             return result;
         }
@@ -107,6 +113,68 @@ namespace TiaOpennessApp.Services
                 {
                     int row = csv.Parser.Row;
                     list.Add(GenerationRowParsing.ParseInterfaceRow(header, SafeGetter(csv), source, row, issues.Add));
+                }
+            }
+            return list;
+        }
+
+        private static List<IoTagSpec> ReadIoTags(string path, List<ParseIssue> issues)
+        {
+            var list = new List<IoTagSpec>();
+            if (!File.Exists(path))
+            {
+                issues.Add(new ParseIssue
+                {
+                    Source = Path.GetFileName(path),
+                    Level = ParseIssueLevel.Warning,
+                    Message = "Fitxer no trobat; no es generaran I/O tags.",
+                });
+                return list;
+            }
+
+            using (var csv = Open(path, issues))
+            {
+                if (csv == null) return list;
+                string source = Path.GetFileName(path);
+                var required = new[] { GenerationColumns.Device, GenerationColumns.Name, GenerationColumns.Type, GenerationColumns.Address };
+                var header = StartSection(csv, source, required, issues);
+                if (header == null) return list;
+
+                while (csv.Read())
+                {
+                    int row = csv.Parser.Row;
+                    list.Add(GenerationRowParsing.ParseTagRow(header, SafeGetter(csv), source, row, issues.Add));
+                }
+            }
+            return list;
+        }
+
+        private static List<ModuleAddressSpec> ReadModuleAddresses(string path, List<ParseIssue> issues)
+        {
+            var list = new List<ModuleAddressSpec>();
+            if (!File.Exists(path))
+            {
+                issues.Add(new ParseIssue
+                {
+                    Source = Path.GetFileName(path),
+                    Level = ParseIssueLevel.Warning,
+                    Message = "Fitxer no trobat; no s'aplicaran adreces de maquinari (I/Q) al projecte generat.",
+                });
+                return list;
+            }
+
+            using (var csv = Open(path, issues))
+            {
+                if (csv == null) return list;
+                string source = Path.GetFileName(path);
+                var required = new[] { GenerationColumns.Device, GenerationColumns.ModuleName, GenerationColumns.IoType };
+                var header = StartSection(csv, source, required, issues);
+                if (header == null) return list;
+
+                while (csv.Read())
+                {
+                    int row = csv.Parser.Row;
+                    list.Add(GenerationRowParsing.ParseModuleAddressRow(header, SafeGetter(csv), source, row, issues.Add));
                 }
             }
             return list;

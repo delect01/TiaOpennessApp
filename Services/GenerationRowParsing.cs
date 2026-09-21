@@ -121,6 +121,69 @@ namespace TiaOpennessApp.Services
             return spec;
         }
 
+        public static IoTagSpec ParseTagRow(string[] header, Func<int, string?> getter, string source, int row, Action<ParseIssue> addIssue)
+        {
+            var spec = new IoTagSpec
+            {
+                Device = GetString(header, getter, GenerationColumns.Device) ?? string.Empty,
+                IoDevice = GetString(header, getter, GenerationColumns.IoDevice) ?? string.Empty,
+                ModuleName = GetString(header, getter, GenerationColumns.ModuleName) ?? string.Empty,
+                SubModuleName = GetString(header, getter, GenerationColumns.SubModuleName) ?? string.Empty,
+                TagTable = GetString(header, getter, GenerationColumns.TagTable) ?? string.Empty,
+                Name = GetString(header, getter, GenerationColumns.Name) ?? string.Empty,
+                Type = GetString(header, getter, GenerationColumns.Type) ?? string.Empty,
+                Address = GetString(header, getter, GenerationColumns.Address) ?? string.Empty,
+                Comment = GetString(header, getter, GenerationColumns.Comment) ?? string.Empty,
+            };
+
+            Require(spec.Device, GenerationColumns.Device, header, source, row, addIssue);
+            Require(spec.Name, GenerationColumns.Name, header, source, row, addIssue);
+            Require(spec.Type, GenerationColumns.Type, header, source, row, addIssue);
+            Require(spec.Address, GenerationColumns.Address, header, source, row, addIssue);
+            return spec;
+        }
+
+        public static ModuleAddressSpec ParseModuleAddressRow(string[] header, Func<int, string?> getter, string source, int row, Action<ParseIssue> addIssue)
+        {
+            string ioType = GetString(header, getter, GenerationColumns.IoType) ?? string.Empty;
+            int? start = ParseNonNegativeInt(header, getter, GenerationColumns.StartAddress, source, row, addIssue);
+            int? length = ParseNonNegativeInt(header, getter, GenerationColumns.Length, source, row, addIssue);
+
+            var spec = new ModuleAddressSpec
+            {
+                Device = GetString(header, getter, GenerationColumns.Device) ?? string.Empty,
+                ModuleName = GetString(header, getter, GenerationColumns.ModuleName) ?? string.Empty,
+                SubModuleName = GetString(header, getter, GenerationColumns.SubModuleName) ?? string.Empty,
+                TypeIdentifier = GetString(header, getter, GenerationColumns.TypeIdentifier) ?? string.Empty,
+                IoType = ioType,
+                StartAddress = start ?? 0,
+                Length = length ?? 0,
+            };
+
+            Require(spec.Device, GenerationColumns.Device, header, source, row, addIssue);
+            Require(spec.ModuleName, GenerationColumns.ModuleName, header, source, row, addIssue);
+            Require(spec.IoType, GenerationColumns.IoType, header, source, row, addIssue);
+            return spec;
+        }
+
+        private static int? ParseNonNegativeInt(string[] header, Func<int, string?> getter, string column, string source, int row, Action<ParseIssue> addIssue)
+        {
+            string? value = GetString(header, getter, column);
+            if (value == null)
+                return null;
+            if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed >= 0)
+                return parsed;
+
+            addIssue(new ParseIssue
+            {
+                Source = source,
+                Row = row,
+                Column = ColumnIndex(header, column) + 1,
+                Message = $"L'atribut '{column}' amb valor '{value}' no és un enter no negatiu vàlid.",
+            });
+            return null;
+        }
+
         private static void Require(string value, string columnName, string[] header, string source, int row, Action<ParseIssue> addIssue)
         {
             if (value.Length == 0)

@@ -185,7 +185,8 @@ d'estar configurats a `appsettings.json`.
 
 Executa el **pipeline complet**:
 parsejar → validar → generar dispositius/mòduls/subnets/interfícies al projecte
-sandbox → desar.
+sandbox → aplicar el **mapa d'adreces de maquinari** (`ModuleAddresses.csv`) →
+generar les **taules i tags d'I/O** (`IoTags.csv`) → desar.
 
 ```
 TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName]
@@ -207,11 +208,12 @@ TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [proj
 
 ## 9. `--roundtrip-test`
 
-Prova integral del pipeline: obre el projecte font, genera el catàleg i els 4
-CSV de documents, executa la generació completa en un projecte nou, re-exporta
-el resultat i compara la topologia amb la font (report `PASS` / `FAIL`). Els
-dispositius GSD sense llicència es classifiquen com a *gaps coneguts* i no fan
-fallar el test.
+Prova integral del pipeline: obre el projecte font, genera el catàleg i els
+CSV de documents (incloent-hi `IoTags.csv` i `ModuleAddresses.csv`), executa la
+generació completa en un projecte nou, re-exporta el resultat i compara la
+topologia, els tags i el mapa d'adreces amb la font (report `PASS` / `FAIL`).
+Els dispositius GSD sense llicència es classifiquen com a *gaps coneguts* i no
+fan fallar el test.
 
 ```
 TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]
@@ -226,7 +228,8 @@ TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName>
 | `[catalogSeed]` | Catàleg inicial. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
 
 **Sortida**: `ROUNDTRIP SUMMARY` amb dispositius, mòduls, subnets i interfícies,
-comparativa de topologia (`TopologyDiff`) i el resultat final `PASS`/`FAIL`
+comparativa de topologia (`TopologyDiff`), re-exportació i comparativa de tags
+(`Tags`) i del mapa d'adreces (`HwAddr`), i el resultat final `PASS`/`FAIL`
 (exit code `0`/`1`).
 
 **Nota**: connecta a TIA Portal en mode headless i fa diverses obertures/desa
@@ -293,8 +296,8 @@ referència de plug.
 ## 13. `--export-docs`
 
 Genera els **documents d'entrada** (`Devices.csv`, `Modules.csv`, `Subnets.csv`,
-`Interfaces.csv`) a partir d'un projecte real (o d'una exportació JSON prèvia).
-Els CSV surten amb les columnes de
+`Interfaces.csv`, `IoTags.csv`, `ModuleAddresses.csv`) a partir d'un projecte
+real (o d'una exportació JSON prèvia). Els CSV surten amb les columnes de
 `GenerationColumns` i llestos per a `--generate-project`.
 
 ```
@@ -316,6 +319,20 @@ TiaOpennessApp --export-docs <projectPath|exportJson> [outDocsDir] [catalogCsv]
 - **Subnets**: subxarxes úniques de les interfícies connectades; tipus `PN/IE`
   o `PROFIBUS` segons la interfície associada.
 - **Interfaces**: una fila per interfície; subxarxa buida si no està connectada.
+- **IoTags** (`IoTags.csv`): una fila per I/O tag de totes les taules de tags
+  dels PLC del projecte (`Device, ModuleName, SubModuleName, TagTable, Name,
+  Type, Address, Comment`). Només s'inclouen tags amb adreça de maquinari
+  d'entrada/sortida (`%I...`/`%Q...`); els de memòria (`%M`), `%DB` i similars
+  es descarten. `ModuleName`/`SubModuleName` s'omplen fent casar l'adreça del
+  tag amb els rangs d'adreces dels mòduls (`DeviceItem.Addresses`).
+  ⚠️ Els tags només es poden extreure d'un **projecte obert**, no d'un JSON:
+  amb font JSON el fitxer surt amb capçalera i buit.
+- **ModuleAddresses** (`ModuleAddresses.csv`): una fila per rang d'adreça I/Q de
+  cada mòdul/submòdul (`Device, ModuleName, SubModuleName, TypeIdentifier,
+  IoType, StartAddress, Length`). Recull el **direccionament manual/espars** de
+  la font; `--generate-project` el reaplica al projecte generat
+  (`ModuleAddressesGenerationService`). Igual que els tags, només s'extreu d'un
+  **projecte obert**; amb font JSON el fitxer surt buit.
 - Els `TypeKey` sense entrada al catàleg s'anoten a la consola i s'usen el nom
   tipus com a fallback.
 
@@ -349,6 +366,25 @@ TiaOpennessApp --dump-interfaces <projectPath>
 
 ---
 
+## 16. `--dump-tags`
+
+Obre un projecte i inspecciona la cadena completa d'I/O tags a runtime:
+serveis d'enginyeria del dispositiu, `SoftwareContainer.Software`, grups i
+taules de tags, i els **atributs reals** de cada tag (noms + valors). Usat per
+diagnosticar per què `IoTags.csv` pot sortir buit (per exemple si l'atribut
+d'adreça té un nom diferent del previst a la versió instal·lada de TIA).
+Acaba executant `ExportIoTags()` per veure quants tags produeix realment.
+
+```
+TiaOpennessApp --dump-tags <projectPath>
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<projectPath>` | Ruta al projecte `.ap21` |
+
+---
+
 ## Comandament desconegut
 
 Qualsevol altre valor mostra el missatge de comandaments suportats:
@@ -357,7 +393,7 @@ Qualsevol altre valor mostra el missatge de comandaments suportats:
 Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox |
 --generate-project | --roundtrip-test | --diff-topology | --dump-type-id |
---plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces
+--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags
 ```
 
 ---

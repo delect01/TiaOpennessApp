@@ -174,10 +174,9 @@ namespace TiaOpennessApp.Services
             }
         }
 
-        private IEnumerable<Device> EnumerateAllDevices()
+        internal static IEnumerable<Device> EnumerateAllDevices(Project project)
         {
             var seen = new HashSet<string>();
-            var project = _project;
 
             foreach (Device device in project.Devices)
                 if (seen.Add(device.Name)) yield return device;
@@ -188,6 +187,11 @@ namespace TiaOpennessApp.Services
             foreach (DeviceGroup group in project.DeviceGroups)
                 foreach (Device device in EnumerateGroupDevices(group))
                     if (seen.Add(device.Name)) yield return device;
+        }
+
+        private IEnumerable<Device> EnumerateAllDevices()
+        {
+            return EnumerateAllDevices(_project);
         }
 
         private static IEnumerable<Device> EnumerateGroupDevices(DeviceGroup group)
@@ -205,7 +209,7 @@ namespace TiaOpennessApp.Services
             }
         }
 
-        private static IEnumerable<DeviceItem> EnumerateItems(Device device)
+        internal static IEnumerable<DeviceItem> EnumerateItems(Device device)
         {
             var seen = new HashSet<string>();
 
@@ -219,7 +223,7 @@ namespace TiaOpennessApp.Services
             }
         }
 
-        private static IEnumerable<DeviceItem> EnumerateItemChildren(DeviceItem item, HashSet<string> seen)
+        internal static IEnumerable<DeviceItem> EnumerateItemChildren(DeviceItem item, HashSet<string> seen)
         {
             IEnumerable<DeviceItem> source;
             if (item.DeviceItems != null && item.DeviceItems.Count > 0)
