@@ -493,7 +493,7 @@ Les comandes que accepten `[catalogCsv]` opcional el resolen així:
 
 1. Valor de la clau `Import:CatalogPath` (si el fitxer existeix).
 2. Si no: `<directori del .exe>/catalog/Catalog.csv` (p. ex.
-   `TiaOpennessApp\bin\Debug\net48\catalog\Catalog.csv`).
+   `TiaOApp\catalog\Catalog.csv`).
 
 `--csv-to-xlsx`, `--generate-template` i les comandes de generació esperen dins
 de `<docsDir>` els fitxers amb noms fixos:
