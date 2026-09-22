@@ -167,18 +167,20 @@ namespace TiaOpennessApp.Services
             {
                 if (addr.Device.Length == 0 || addr.ModuleName.Length == 0)
                     continue;
+                string addrDeviceTypeKey = doc.Devices
+                    .FirstOrDefault(d => d.DeviceName.Equals(addr.Device, StringComparison.OrdinalIgnoreCase))
+                    ?.TypeKey ?? string.Empty;
+
                 if (!deviceNames.Contains(addr.Device))
                 {
-                    // Els dispositius GSD sense llicència no es crearan; la fila
-                    // d'adreça serà reportada com a ERROR al pas d'aplicació, però
-                    // no ha de bloquejar tota la generació.
                     Warning("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
-                        $"Dispositiu no present als CSV ('{addr.Device}') o GSD sense llicència.");
+                        $"Dispositiu no present als CSV ('{addr.Device}').");
                     continue;
                 }
-                if (!moduleKeys.Contains(addr.Device + "\u0001" + addr.ModuleName))
+                if (!moduleKeys.Contains(addr.Device + "\u0001" + addr.ModuleName)
+                    && !IsGsdDevice(addrDeviceTypeKey))
                     Warning("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
-                        $"Mòdul no present a Modules.csv ('{addr.ModuleName}') o submòdul GSD intern.");
+                        $"Mòdul no present a Modules.csv ('{addr.ModuleName}').");
                 if (addr.IoType != "I" && addr.IoType != "Q")
                     Error("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
                         $"IoType invàlid: '{addr.IoType}' (esperat 'I' o 'Q').");
@@ -246,8 +248,19 @@ namespace TiaOpennessApp.Services
 
         private void ValidateSlots(GenerationDocument doc)
         {
+            var deviceTypeKeys = doc.Devices
+                .GroupBy(d => d.DeviceName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().TypeKey, StringComparer.OrdinalIgnoreCase);
+
             foreach (var group in doc.Modules.GroupBy(m => m.Device, StringComparer.OrdinalIgnoreCase))
             {
+                // Els mòduls de dispositius GSD són informatius: l'estructura real ve de
+                // l'import golden i tots els specs es salten quan el dispositiu ja existeix;
+                // la col·lisió de slot (p. ex. item estació + root auto a slot 0) no ha de
+                // bloquejar la generació.
+                deviceTypeKeys.TryGetValue(group.Key, out string? deviceTypeKey);
+                bool isGsd = IsGsdDevice(deviceTypeKey ?? string.Empty);
+
                 var slots = new HashSet<int>();
                 foreach (var module in group.Where(m => m.Slot.HasValue))
                 {
@@ -258,6 +271,8 @@ namespace TiaOpennessApp.Services
                             $"Slot negatiu: {slot}.");
                         continue;
                     }
+                    if (isGsd)
+                        continue;
                     if (!slots.Add(slot))
                         Error("Modules", group.Key + " / " + module.ModuleName,
                             $"Col·lisió de slot {slot} (ja ocupat per un altre mòdul).");
@@ -301,8 +316,14 @@ namespace TiaOpennessApp.Services
                     bool isDeviceRoot = doc.Devices.Any(d =>
                         d.DeviceName.Equals(module.Device, StringComparison.OrdinalIgnoreCase)
                         && d.TypeKey.Equals(module.TypeKey, StringComparison.OrdinalIgnoreCase));
+                    string moduleDeviceTypeKey = doc.Devices
+                        .FirstOrDefault(d => d.DeviceName.Equals(module.Device, StringComparison.OrdinalIgnoreCase))
+                        ?.TypeKey ?? string.Empty;
 
-                    if (!isDeviceRoot)
+                    // Els dispositius GSD tenen el TypeKey del root que no coincideix
+                    // amb el TypeKey de l'estació (p. ex. UM6A_PR = UFRXXBV17 vs root
+                    // MDX61BDFE32BV14); es creen per import gsdml, no per CreateWithItem.
+                    if (!isDeviceRoot && !IsGsdDevice(moduleDeviceTypeKey))
                         Warning("Modules", module.Device + " / " + module.ModuleName,
                             $"TypeKey '{module.TypeKey}' és un Root del catàleg; en mòduls s'espera un mòdul.");
                 }
@@ -314,6 +335,15 @@ namespace TiaOpennessApp.Services
             return _catalog.FirstOrDefault(e =>
                 e.TypeKey.Equals(typeKey, StringComparison.OrdinalIgnoreCase)
                 && e.TiaVersion == CatalogService.DefaultTiaVersion);
+        }
+
+        private bool IsGsdDevice(string deviceTypeKey)
+        {
+            if (string.IsNullOrEmpty(deviceTypeKey))
+                return false;
+            return _catalog.Any(e =>
+                e.TypeKey.Equals(deviceTypeKey, StringComparison.OrdinalIgnoreCase)
+                && e.Identifier?.StartsWith("GSD:", StringComparison.OrdinalIgnoreCase) == true);
         }
 
         private void BuildPlannedOperations(GenerationDocument doc)

@@ -10,6 +10,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Win32;
 using Siemens.Engineering;
+using Siemens.Engineering.Cax;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using TiaOpennessApp.Models;
@@ -469,7 +470,7 @@ namespace TiaOpennessApp
             {
                 if (args.Length < 2)
                 {
-                    Console.WriteLine("Usage: TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName]");
+                    Console.WriteLine("Usage: TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName] [goldenAml]");
                     return;
                 }
 
@@ -479,12 +480,26 @@ namespace TiaOpennessApp
                     : ResolveCatalogPath();
                 string? targetDirectory = args.Length >= 4 ? args[3] : null;
                 string? projectName = args.Length >= 5 ? args[4] : null;
+                string? goldenAml = args.Length >= 6 ? args[5] : null;
 
                 using var genConnection = new TiaConnection();
                 genConnection.ConnectHeadless();
                 Console.WriteLine("Connected to TIA Portal (headless).");
 
-                RunFullGenerationPipeline(genConnection, docsDir, catalogPath, targetDirectory, projectName);
+                RunFullGenerationPipeline(genConnection, docsDir, catalogPath, targetDirectory, projectName, goldenAml);
+                return;
+            }
+
+            if (command == "--export-cax-project")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --export-cax-project <projectPath> <outAml> [logFile]");
+                    return;
+                }
+
+                using var caxConnection = new TiaConnection();
+                RunExportCaxProject(caxConnection, args[1], args[2], args.Length >= 4 ? args[3] : null);
                 return;
             }
 
@@ -689,11 +704,25 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--gsd-cax-poc")
+            {
+                if (args.Length < 4)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --gsd-cax-poc <srcProject> <targetDir> <projectName> [deviceName]");
+                    return;
+                }
+
+                using var pocConnection = new TiaConnection();
+                RunGsdCaxPoc(pocConnection, args);
+                return;
+            }
+
             Console.WriteLine($"Unknown command: {args[0]}");
             Console.WriteLine("Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx | " +
                               "--xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox | " +
                               "--generate-project | --roundtrip-test | --diff-topology | --dump-type-id | " +
-                              "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags");
+                              "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
+                              "--dump-hw-items | --gsd-cax-poc | --export-cax-project");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir)
@@ -772,7 +801,89 @@ namespace TiaOpennessApp
             string targetDirectory = ReadAndRememberValue("Destination directory", "TiaPortal:NewProjectPath");
             string projectName = ReadAndRememberValue("Project name", "TiaPortal:NewProjectName");
 
-            RunFullGenerationPipeline(connection, docsDir, catalogPath, targetDirectory, projectName);
+            string? goldenAml = ResolveGoldenAmlForMenu(connection, projectName);
+
+            RunFullGenerationPipeline(connection, docsDir, catalogPath, targetDirectory, projectName, goldenAml);
+        }
+
+        /// <summary>
+        /// Resolves the golden AML used to import GSD devices in the interactive menu:
+        /// exports it automatically from the currently open project when possible, otherwise
+        /// prompts the user for an existing AML file (optional, remembered in appsettings).
+        /// </summary>
+        private static string? ResolveGoldenAmlForMenu(TiaConnection connection, string projectName)
+        {
+            if (connection.HasOpenProject)
+            {
+                string goldenAml = Path.Combine(Path.GetTempPath(), $"golden_menu_{projectName}_{DateTime.Now:HHmmss}.aml");
+                string goldenLog = goldenAml + ".log";
+                string? result = null;
+                try
+                {
+                    Console.WriteLine("\nProjecte obert detectat: exportant golden AML per importar els dispositius GSD...");
+                    bool goldenExportOk = CaxTransferService.ExportProject(connection.Project, new FileInfo(goldenAml), new FileInfo(goldenLog));
+                    FileInfo goldenFile = new FileInfo(goldenAml);
+                    if (goldenFile.Exists && goldenFile.Length > 0)
+                    {
+                        Console.WriteLine($"Golden AML: generat ({goldenFile.Length} bytes, success={goldenExportOk}) -> {goldenAml}");
+                        result = goldenAml;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"(avís) golden AML no generat (success={goldenExportOk}); sense golden no s'importaran els dispositius GSD.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"(avís) no s'ha pogut exportar el golden AML: {ex.Message}");
+                }
+
+                // TIA només permet un projecte obert: es tanca abans que el pipeline n'obri el sandbox.
+                connection.CloseProject();
+                return result;
+            }
+
+            string configuredGolden = AppConfig["Import:GoldenAmlPath"] ?? string.Empty;
+            string goldenInput = ReadOptionalValue("Golden AML path (buit = sense importar GSD)", configuredGolden);
+            if (!string.Equals(goldenInput, configuredGolden, StringComparison.Ordinal))
+                PersistAppSettings(("Import:GoldenAmlPath", goldenInput));
+
+            if (string.IsNullOrWhiteSpace(goldenInput))
+                return null;
+            if (!File.Exists(goldenInput))
+            {
+                Console.WriteLine($"(avís) el golden AML no existeix: {goldenInput}");
+                return null;
+            }
+            return Path.GetFullPath(goldenInput);
+        }
+
+        private static void RunExportCaxProject(TiaConnection connection, string projectPath, string outAml, string? logFile)
+        {
+            Console.WriteLine("═══ EXPORT CAx PROJECT ═══");
+            try { connection.ConnectHeadless(); }
+            catch (Exception ex) { Console.WriteLine($"FAIL: no s'ha pogut connectar a TIA Portal: {ex.Message}"); return; }
+
+            try { connection.OpenProject(projectPath); }
+            catch (Exception ex) { Console.WriteLine($"FAIL: no s'ha pogut obrir el projecte: {ex.Message}"); return; }
+
+            string? outDir = Path.GetDirectoryName(Path.GetFullPath(outAml));
+            if (!string.IsNullOrWhiteSpace(outDir))
+                Directory.CreateDirectory(outDir);
+
+            string logPath = string.IsNullOrWhiteSpace(logFile) ? outAml + ".log" : logFile!;
+            bool exportOk = CaxTransferService.ExportProject(connection.Project, new FileInfo(outAml), new FileInfo(logPath));
+            Console.WriteLine($"Export {connection.Project.Name}: success={exportOk}");
+            if (File.Exists(logPath))
+            {
+                foreach (string line in File.ReadAllLines(logPath).Take(50))
+                    Console.WriteLine("  " + line);
+            }
+
+            FileInfo outFile = new FileInfo(outAml);
+            Console.WriteLine(outFile.Exists && outFile.Length > 0
+                ? $"AML generat: {outFile.FullName} ({outFile.Length} bytes)"
+                : "FAIL: el fitxer AML no s'ha generat o és buit.");
         }
 
         private sealed class GenerationRunResult
@@ -791,7 +902,8 @@ namespace TiaOpennessApp
             string docsDir,
             string catalogPath,
             string? targetDirectory = null,
-            string? projectName = null)
+            string? projectName = null,
+            string? goldenAmlPath = null)
         {
             var result = new GenerationRunResult();
 
@@ -839,6 +951,49 @@ namespace TiaOpennessApp
             Console.WriteLine($"Projecte sandbox: {project.Path.FullName}");
 
             Dictionary<string, string> rootItemNames = BuildRootItemNames(parseResult.Document);
+
+            List<CatalogEntry> gsdCatalogEntries = catalog
+                .Where(e => e.Identifier?.StartsWith("GSD:", StringComparison.OrdinalIgnoreCase) == true)
+                .ToList();
+            if (gsdCatalogEntries.Count > 0)
+            {
+                var gsdTypeKeys = new HashSet<string>(gsdCatalogEntries.Select(e => e.TypeKey),
+                    StringComparer.OrdinalIgnoreCase);
+                var keepNames = parseResult.Document.Devices
+                    .Where(d => gsdTypeKeys.Contains(d.TypeKey))
+                    .Select(d => d.DeviceName)
+                    .ToList();
+
+                if (keepNames.Count == 0)
+                {
+                    Console.WriteLine("(avís) el catàleg té entrades GSD però cap DeviceSpec les utilitza.");
+                }
+                else if (string.IsNullOrWhiteSpace(goldenAmlPath) || !File.Exists(goldenAmlPath))
+                {
+                    Console.WriteLine($"(avís) sense golden AML no s'importaran els {keepNames.Count} dispositiu(s) GSD; " +
+                                      "el pas de device generation els crearà amb CreateWithItem (error de llicència gsdml probable).");
+                }
+                else
+                {
+                    Console.WriteLine("\n═══ CAX GOLDEN IMPORT ═══");
+                    var gsdImport = new GsdCaxImportService(project);
+                    string resolvedGoldenAml = Path.GetFullPath(goldenAmlPath!);
+                    GsdCaxImportReport goldenReport = gsdImport.ImportGoldenAndKeep(resolvedGoldenAml, keepNames);
+                    string status = goldenReport.ImportOk ? "OK" : "AMB ERRORS";
+                    Console.WriteLine($"  Import {status}: {goldenReport.ImportedDeviceCount} dispositiu(s) al projecte, " +
+                                      $"{goldenReport.ErrorCount} error(s), {goldenReport.WarningCount} warning(s).");
+                    if (goldenReport.KeptDevices.Count > 0)
+                        Console.WriteLine($"  Conservats ({goldenReport.KeptDevices.Count}): {string.Join(", ", goldenReport.KeptDevices)}");
+                    if (goldenReport.RemovedDevices.Count > 0)
+                        Console.WriteLine($"  Esborrats ({goldenReport.RemovedDevices.Count}): {string.Join(", ", goldenReport.RemovedDevices)}");
+                    if (goldenReport.MissingExpectedDevices.Count > 0)
+                        Console.WriteLine($"  (avís) GSD esperats no trobats al golden: {string.Join(", ", goldenReport.MissingExpectedDevices)}");
+                    foreach (string warning in goldenReport.Warnings.Take(20))
+                        Console.WriteLine($"  warn: {warning}");
+                    foreach (string error in goldenReport.Errors)
+                        Console.WriteLine($"  ERROR: {error}");
+                }
+            }
 
             Console.WriteLine("\n═══ DEVICE GENERATION ═══");
             var deviceReports = new DevicesGenerationService(project, catalog)
@@ -963,6 +1118,23 @@ namespace TiaOpennessApp
             if (docsReport.TypeKeysMissing.Count > 0)
                 Console.WriteLine($"  (avís) TypeKeys no resolts: {string.Join(", ", docsReport.TypeKeysMissing)}");
 
+            // Golden AML: export del projecte sencer; es farà servir per importar els dispositius
+            // GSD al pas 4 sense la llicència gsdml.
+            string goldenAml = Path.Combine(workDir, "golden.aml");
+            string goldenLog = goldenAml + ".log";
+            try
+            {
+                bool goldenExportOk = CaxTransferService.ExportProject(connection.Project, new FileInfo(goldenAml), new FileInfo(goldenLog));
+                FileInfo goldenFile = new FileInfo(goldenAml);
+                Console.WriteLine(goldenFile.Exists && goldenFile.Length > 0
+                    ? $"Golden AML: generat ({goldenFile.Length} bytes, success={goldenExportOk}) -> {goldenAml}"
+                    : $"(avís) golden AML no generat (success={goldenExportOk}); els dispositius GSD no es podran importar.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"(avís) no s'ha pogut exportar el golden AML: {ex.Message}");
+            }
+
             connection.CloseProject();
 
             // PAS 4: neteja del resultat anterior i generació
@@ -974,7 +1146,7 @@ namespace TiaOpennessApp
                 catch (Exception ex) { Console.WriteLine($"  (avís) no s'ha pogut netejar: {ex.Message}"); }
             }
 
-            GenerationRunResult? gen = RunFullGenerationPipeline(connection, workDir, catalogPath, targetDir, projectName);
+            GenerationRunResult? gen = RunFullGenerationPipeline(connection, workDir, catalogPath, targetDir, projectName, goldenAml);
             if (gen?.Project == null)
             {
                 Console.WriteLine("\nROUNDTRIP FAILED: la generació no ha completat.");
@@ -1117,6 +1289,328 @@ namespace TiaOpennessApp
 
             var actualSet = new HashSet<string>(actual.Select(Key), StringComparer.OrdinalIgnoreCase);
             return expected.Count(e => !actualSet.Contains(Key(e)));
+        }
+
+        private static void RunGsdCaxPoc(TiaConnection connection, string[] args)
+        {
+            string srcProject = args[1];
+            string targetDir = args[2];
+            string projectName = args[3];
+            string? deviceFilter = args.Length >= 5 ? args[4] : null;
+
+            Console.WriteLine("═══ GSD CAx PoC ═══");
+
+            try
+            {
+                connection.ConnectHeadless();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut connectar a TIA Portal: {ex.Message}");
+                return;
+            }
+
+            try
+            {
+                connection.OpenProject(srcProject);
+                Console.WriteLine($"[1] Font: projecte {connection.Project.Name}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut obrir el projecte font: {ex.Message}");
+                return;
+            }
+
+            Device? gsdDevice = null;
+            if (!string.IsNullOrWhiteSpace(deviceFilter))
+            {
+                foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(connection.Project))
+                {
+                    if (device.Name.IndexOf(deviceFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        gsdDevice = device;
+                        break;
+                    }
+                }
+
+                if (gsdDevice == null)
+                {
+                    Console.WriteLine($"FAIL: no s'ha trobat cap dispositiu que contingui '{deviceFilter}' al projecte font.");
+                    return;
+                }
+            }
+            else
+            {
+                foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(connection.Project))
+                {
+                    if (device.IsGsd)
+                    {
+                        gsdDevice = device;
+                        break;
+                    }
+                }
+
+                if (gsdDevice == null)
+                {
+                    Console.WriteLine("FAIL: el projecte font no conté cap dispositiu GSD.");
+                    return;
+                }
+            }
+
+            Console.WriteLine($"    dispositiu: {gsdDevice.Name}  IsGsd={gsdDevice.IsGsd}  " +
+                              $"TypeIdentifier={SafeString(gsdDevice.TypeIdentifier)}");
+
+            string gsdDeviceName = gsdDevice.Name;
+
+            string amlDir = Path.Combine(Path.GetTempPath(), "gsd-cax-poc");
+            Directory.CreateDirectory(amlDir);
+            string safeName = string.Concat(gsdDeviceName.Split(Path.GetInvalidFileNameChars()));
+            string amlPath = Path.Combine(amlDir, safeName + ".aml");
+            string logPath = amlPath + ".log";
+            foreach (string file in new[] { amlPath, logPath })
+                if (File.Exists(file))
+                    File.Delete(file);
+
+            bool exportOk;
+            string exportOrigin;
+            try
+            {
+                exportOk = CaxTransferService.ExportDevice(gsdDevice, new FileInfo(amlPath), new FileInfo(logPath));
+                exportOrigin = "dispositiu (3-arg)";
+            }
+            catch (Exception ex1)
+            {
+                Console.WriteLine($"    (avís) export per dispositiu (3-arg) fallit: {ex1.Message}");
+                Console.WriteLine("    Provant export del projecte complet...");
+                foreach (string file in new[] { amlPath, logPath })
+                    if (File.Exists(file))
+                        File.Delete(file);
+
+                try
+                {
+                    exportOk = CaxTransferService.ExportProject(connection.Project, new FileInfo(amlPath), new FileInfo(logPath));
+                    exportOrigin = "projecte complet";
+                }
+                catch (Exception ex2)
+                {
+                    Console.WriteLine($"FAIL: l'export CAx ha llançat excepcions en ambdues vies: {ex2.Message}");
+                    if (ex2.InnerException != null)
+                        Console.WriteLine($"  Inner: {ex2.InnerException.Message}");
+                    return;
+                }
+            }
+
+            Console.WriteLine($"    Export ({exportOrigin}): success={exportOk}");
+            if (File.Exists(logPath))
+            {
+                foreach (string line in File.ReadAllLines(logPath).Take(30))
+                    Console.WriteLine($"      {line}");
+            }
+
+            FileInfo amlFile = new FileInfo(amlPath);
+            if (!amlFile.Exists || amlFile.Length == 0)
+            {
+                Console.WriteLine("FAIL: el fitxer AML no s'ha generat o és buit.");
+                return;
+            }
+
+            Console.WriteLine($"    fitxer: {amlPath} ({amlFile.Length} bytes)");
+
+            try
+            {
+                connection.ForceCloseProject();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"(avís) tancant el projecte font: {ex.Message}");
+            }
+
+            string sandboxFolder = Path.Combine(Path.GetFullPath(targetDir), projectName);
+            if (Directory.Exists(sandboxFolder))
+            {
+                try
+                {
+                    Directory.Delete(sandboxFolder, true);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"(avís) no s'ha pogut netejar el sandbox previ: {ex.Message}");
+                }
+            }
+
+            Project sandbox;
+            try
+            {
+                sandbox = new ProjectCreationService(connection).CreateNewProject(targetDir, projectName);
+                Console.WriteLine($"[2] Projecte sandbox creat: {sandbox.Path!.FullName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut crear el projecte sandbox: {ex.Message}");
+                return;
+            }
+
+            bool importSucceeded = false;
+            try
+            {
+                var importResult = CaxTransferService.ImportAml(sandbox, amlFile, CaxImportOptions.RetainTiaDevice);
+                PrintCaxResult("Import AML", importResult);
+                importSucceeded = true;
+
+                if (HasLicenseError(importResult))
+                {
+                    Console.WriteLine("FAIL (gate): l'import CAx conté errors de llicència 'gsdml'.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"    (avís) import de 2 args fallit: {ex.Message}");
+                string importLogPath = amlPath + ".import.log";
+                if (File.Exists(importLogPath))
+                    File.Delete(importLogPath);
+
+                try
+                {
+                    bool ok = CaxTransferService.ImportAmlWithLog(sandbox, amlFile, new FileInfo(importLogPath), CaxImportOptions.RetainTiaDevice);
+                    Console.WriteLine($"    Import AML (3-arg): success={ok}");
+                    if (File.Exists(importLogPath))
+                    {
+                        foreach (string line in File.ReadAllLines(importLogPath).Take(40))
+                            Console.WriteLine($"      {line}");
+                    }
+                    importSucceeded = true;
+                }
+                catch (Exception ex2)
+                {
+                    Console.WriteLine($"FAIL: l'import CAx ha llançat excepcions en ambdues vies: {ex2.Message}");
+                    if (ex2.InnerException != null)
+                        Console.WriteLine($"  Inner: {ex2.InnerException.Message}");
+                    Console.WriteLine("GATE: comprovar si la via CAx esquiva la llicència 'gsdml'.");
+                    return;
+                }
+            }
+
+            Device? imported = null;
+            foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(sandbox))
+            {
+                if (device.Name.Equals(gsdDeviceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    imported = device;
+                    break;
+                }
+            }
+
+            bool moduleFound = false;
+            int ioRanges = 0;
+            var ranges = new List<string>();
+            if (imported != null)
+            {
+                foreach (DeviceItem top in imported.DeviceItems)
+                    ScanPocItem(top, ref moduleFound, ref ioRanges, ranges);
+            }
+
+            Console.WriteLine("[3] Verificació al sandbox:");
+            Console.WriteLine($"    dispositiu '{gsdDeviceName}' creat: {(imported != null ? "PASS" : "FAIL")}");
+            Console.WriteLine($"    submòdul '06 process data words': {(moduleFound ? "TROBAT" : "NO TROBAT")}");
+            Console.WriteLine($"    rangs I/Q al dispositiu: {ioRanges}");
+            foreach (string range in ranges)
+                Console.WriteLine($"      {range}");
+
+            bool pass = importSucceeded && imported != null && ioRanges > 0;
+            if (pass)
+            {
+                Console.WriteLine();
+                Console.WriteLine("RESULTAT: PASS — la via CAx crea el dispositiu GSD sense llicència 'gsdml'.");
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine("RESULTAT: FAIL — revisar el motive (llicència, referències AML o materialització d'adreces).");
+            }
+
+            try
+            {
+                sandbox.Save();
+                Console.WriteLine($"Projecte sandbox desat a: {sandbox.Path!.FullName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut desar el projecte sandbox: {ex.Message}");
+            }
+        }
+
+        private static void ScanPocItem(DeviceItem item, ref bool moduleFound, ref int ioRanges, List<string> ranges)
+        {
+            try
+            {
+                if (item.Name.IndexOf("06 process data words", StringComparison.OrdinalIgnoreCase) >= 0)
+                    moduleFound = true;
+            }
+            catch { }
+
+            try
+            {
+                foreach (Address address in item.Addresses)
+                {
+                    if (address.IoType == AddressIoType.Input || address.IoType == AddressIoType.Output)
+                    {
+                        ioRanges++;
+                        int start = SafeInt(address.StartAddress);
+                        int length = SafeInt(address.Length);
+                        ranges.Add($"{IsIq(address.IoType)} {start}..{start + Math.Max(length - 1, 0)}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      (adreces: {ex.Message})");
+            }
+
+            try
+            {
+                foreach (DeviceItem child in item.DeviceItems)
+                    ScanPocItem(child, ref moduleFound, ref ioRanges, ranges);
+            }
+            catch { }
+        }
+
+        private static void PrintCaxResult(string step, TransferResult result)
+        {
+            Console.WriteLine($"    {step}: State={result.State} Errors={result.ErrorCount} Warnings={result.WarningCount}");
+            try
+            {
+                foreach (TransferResultMessage message in result.Messages)
+                {
+                    string tag = message.State == TransferResultState.Error ? "ERR" :
+                                 message.State == TransferResultState.Warning ? "WRN" :
+                                 message.State == TransferResultState.Information ? "INF" : "OK ";
+                    Console.WriteLine($"      [{tag}] {message.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"      (messages: {ex.Message})");
+            }
+        }
+
+        private static bool HasLicenseError(TransferResult result)
+        {
+            if (result.ErrorCount == 0)
+                return false;
+
+            try
+            {
+                foreach (TransferResultMessage message in result.Messages)
+                {
+                    if (message.State == TransferResultState.Error &&
+                        message.Message.IndexOf("llic", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         private static void DumpHwItems(Siemens.Engineering.Project project, string? filter)
@@ -1623,6 +2117,17 @@ namespace TiaOpennessApp
                     return configuredDefault;
                 Console.WriteLine("A value is required.");
             }
+        }
+
+        private static string ReadOptionalValue(string label, string configuredDefault)
+        {
+            string prefix = string.IsNullOrWhiteSpace(configuredDefault)
+                ? $"{label}: "
+                : $"{label} [{configuredDefault}]: ";
+
+            Console.Write(prefix);
+            string input = Console.ReadLine()?.Trim() ?? string.Empty;
+            return input.Length > 0 ? input : (configuredDefault ?? string.Empty);
         }
 
         private static void WriteFile(string path, string content)

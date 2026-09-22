@@ -40,7 +40,7 @@ namespace TiaOpennessApp.Services
 
                 try
                 {
-                    if (devices.Find(spec.DeviceName) != null)
+                    if (DevicesAndNetworksService.FindDeviceByName(_project, spec.DeviceName) != null)
                     {
                         report.Skipped = true;
                         results.Add(report);

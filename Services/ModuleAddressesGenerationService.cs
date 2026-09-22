@@ -181,7 +181,7 @@ namespace TiaOpennessApp.Services
 
         private Device? SafeFindDevice(string name)
         {
-            try { return _project.Devices.Find(name); }
+            try { return DevicesAndNetworksService.FindDeviceByName(_project, name); }
             catch { return null; }
         }
 

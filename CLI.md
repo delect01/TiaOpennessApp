@@ -43,6 +43,12 @@ dotnet run -- <command> [arguments...]
 | `--export-docs` | Genera els CSV de documents des d'un projecte o exportació |
 | `--dump-subnets` | Mostra les xarxes (subnets) d'un projecte |
 | `--dump-interfaces` | Mostra les interfícies de xarxa d'un projecte |
+| `--gsd-cax-poc` | PoC: exporta un dispositiu GSD a AML i l'importa en un sandbox (via CAx) |
+| `--export-cax-project` | Exporta un projecte sencer a un fitxer CAx/AML (golden) |
+
+> **Golden AML**: es pot obtenir amb `--export-cax-project`, amb el roundtrip
+> (`workDir\golden.aml`) o automàticament des del projecte obert al menú
+> interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
 
 ---
 
@@ -196,7 +202,7 @@ sandbox → aplicar el **mapa d'adreces de maquinari** (`ModuleAddresses.csv`) �
 generar les **taules i tags d'I/O** (`IoTags.csv`) → desar.
 
 ```
-TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName]
+TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [projectName] [goldenAml]
 ```
 
 | Argument | Descripció |
@@ -205,11 +211,27 @@ TiaOpennessApp --generate-project <docsDir> [catalogCsv] [targetDirectory] [proj
 | `[catalogCsv]` | Catàleg. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
 | `[targetDirectory]` | Directori destí del projecte. Per defecte: `TiaPortal:NewProjectPath` |
 | `[projectName]` | Nom del projecte. Per defecte: `TiaPortal:NewProjectName` |
+| `[goldenAml]` | Fitxer CAx/AML "golden" (export del projecte sencer). Si el catàleg té entrades GSD (`Identifier` comença per `GSD:`), s'importa amb `RetainTiaDevice` i es conserven només els dispositius del document (s'esborren la resta) abans de generar la resta del projecte. Sense aquest fitxer, els dispositius GSD es crearien amb `CreateWithItem` (error de llicència `gsdml`). |
 
 **Requisits**: si no es passen `[targetDirectory]`/`[projectName]`, els keys
 `TiaPortal:NewProjectPath`/`NewProjectName` han d'estar configurats a `appsettings.json`.
 
 **Nota**: connecta a TIA Portal en mode headless.
+
+### 8.1 Golden AML al menú interactiu
+
+L'opció **3. Generate project from documents** del menú resolt el golden AML
+automàticament:
+
+1. Si hi ha un projecte obert a la connexió (p. ex. l'has obert pel menú 1),
+   se'n **exporta** un golden a `%TEMP%\golden_menu_<projectName>_<time>.aml`
+   i s'usa per importar els dispositius GSD.
+2. Si no hi ha cap projecte obert, es pregunta:
+   `Golden AML path (buit = sense importar GSD)`. El valor teclejat es recorda a
+   `appsettings.json` (`Import:GoldenAmlPath`) i es reutilitza com a valor per
+   defecte a les següents execucions.
+3. Sense golden, els dispositius GSD es generarien amb `CreateWithItem` (error
+   de llicència `gsdml`); el pipeline ho avisa i continua.
 
 ---
 
@@ -219,8 +241,11 @@ Prova integral del pipeline: obre el projecte font, genera el catàleg i els
 CSV de documents (incloent-hi `IoTags.csv` i `ModuleAddresses.csv`), executa la
 generació completa en un projecte nou, re-exporta el resultat i compara la
 topologia, els tags i el mapa d'adreces amb la font (report `PASS` / `FAIL`).
-Els dispositius GSD sense llicència es classifiquen com a *gaps coneguts* i no
-fan fallar el test.
+Durant el PAS 1-3 el round-trip exporta un **golden AML** (`workDir\golden.aml`)
+del projecte sencer; al PAS 4 el pipeline l'importa per crear els dispositius GSD
+sense necessitar la llicència `gsdml` (els serveis de generació els troben i els
+salten). Els dispositius GSD que no vinguin al golden es classifiquen com a
+*gaps coneguts* i no fan fallar el test.
 
 ```
 TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]
@@ -400,8 +425,65 @@ Qualsevol altre valor mostra el missatge de comandaments suportats:
 Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox |
 --generate-project | --roundtrip-test | --diff-topology | --dump-type-id |
---plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags
+--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
+--dump-hw-items | --gsd-cax-poc | --export-cax-project
 ```
+
+---
+
+## 17. `--gsd-cax-poc`
+
+PoC de la via **CAx (AML)** per a dispositius GSD/GSDML de tercers: exporta el
+projecte font a un fitxer `.aml` (`CaxProvider.Export`) i l'importa en un
+projecte sandbox nou (`CaxProvider.Import` amb `CaxImportOptions.RetainTiaDevice`),
+tot sense `CreateWithItem` (bloquejat per la llicència `gsdml`). Verifica que el
+dispositiu, el submòdul `06 process data words` i les adreces I/Q es creen
+correctament i sense errors de llicència.
+
+> **Nota**: l'export per dispositiu (`Export(Device,...)`) llança una
+> `NullReferenceException` amb dispositius GSD a V21; es fa servir l'export del
+> **projecte sencer** i l'import de tot el golden AML.
+> L'extensió del fitxer CAx és **`.aml`** (no `.amlx`).
+
+```
+TiaOpennessApp --gsd-cax-poc <srcProject> <targetDir> <projectName> [deviceName]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<srcProject>` | Projecte `.ap21` font amb els dispositius GSD ja inserits (p. ex. `TEST_TIAO.ap21`) |
+| `<targetDir>` | Directori on es crearà el projecte sandbox |
+| `<projectName>` | Nom del projecte sandbox |
+| `[deviceName]` | Fragment del nom del dispositiu GSD a provar. Per defecte: el primer dispositiu `IsGsd` del projecte |
+
+**Sortida**: resultats d'export (`State`, `Errors`, `Warnings`, missatges),
+grandària del `.aml`, resultats d'import, verificació al sandbox (dispositiu,
+submòdul, rangs I/Q) i `RESULTAT: PASS` / `FAIL`.
+
+**Gates**: si l'export o l'import llancen excepció o errors de llicència
+`gsdml`, s'atura amb `FAIL (gate)` per decidir si la via CAx és viable abans
+d'integrar-la al pipeline.
+
+---
+
+## 18. `--export-cax-project`
+
+Exporta un projecte sencer a un fitxer CAx **`.aml`** (`CaxProvider.Export(Project,
+...)`). És la mateixa via que fa servir el round-trip per generar el **golden AML**
+que després es reimporta per crear els dispositius GSD.
+
+```
+TiaOpennessApp --export-cax-project <projectPath> <outAml> [logFile]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<projectPath>` | Projecte `.ap21` a exportar |
+| `<outAml>` | Ruta del fitxer `.aml` de sortida |
+| `[logFile]` | Fitxer de log de l'export. Per defecte: `<outAml>.log` |
+
+> **Nota**: l'export torna `false` per projectes amb dispositius GSD tot i generar
+> el `.aml` correctament; valideu per existència/grandària del fitxer.
 
 ---
 

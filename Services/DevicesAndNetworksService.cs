@@ -189,6 +189,16 @@ namespace TiaOpennessApp.Services
                     if (seen.Add(device.Name)) yield return device;
         }
 
+        internal static Device? FindDeviceByName(Project project, string name)
+        {
+            foreach (Device device in EnumerateAllDevices(project))
+            {
+                if (device.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                    return device;
+            }
+            return null;
+        }
+
         private IEnumerable<Device> EnumerateAllDevices()
         {
             return EnumerateAllDevices(_project);

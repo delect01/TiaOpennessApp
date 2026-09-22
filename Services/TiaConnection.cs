@@ -20,6 +20,9 @@ namespace TiaOpennessApp.Services
         /// <summary>True when we opened the project ourselves, so we close it again to restore the previous state.</summary>
         public bool OpenedProject { get; private set; }
 
+        /// <summary>True when a project is currently open in this connection (opened by us or reused).</summary>
+        public bool HasOpenProject => _project != null;
+
         public TiaPortal Portal => _portal ?? throw new InvalidOperationException("Portal not connected.");
         public Project Project => _project ?? throw new InvalidOperationException("Project not opened.");
 

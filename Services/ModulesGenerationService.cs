@@ -36,7 +36,6 @@ namespace TiaOpennessApp.Services
             IReadOnlyDictionary<string, string> rootItemNames)
         {
             var results = new List<ModuleGenerationItemReport>();
-            DeviceComposition devices = _project.Devices;
 
             foreach (var module in doc.Modules)
             {
@@ -52,7 +51,7 @@ namespace TiaOpennessApp.Services
                 {
                     int slot = module.Slot ?? 0;
 
-                    Device? device = devices.Find(module.Device);
+                    Device? device = DevicesAndNetworksService.FindDeviceByName(_project, module.Device);
                     if (device == null)
                     {
                         report.Error = "Dispositiu no trobat al projecte.";

@@ -409,9 +409,10 @@ namespace TiaOpennessApp.Services
 
         private Device? FindDevice(string name)
         {
-            Device? device = _project.Devices.Find(name);
-            if (device == null)
-                device = _project.UngroupedDevicesGroup.Devices.Find(name);
+            Device? device = DevicesAndNetworksService.FindDeviceByName(_project, name);
+            if (device != null)
+                return device;
+            device = _project.UngroupedDevicesGroup.Devices.Find(name);
             return device;
         }
 

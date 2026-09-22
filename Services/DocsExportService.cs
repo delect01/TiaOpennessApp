@@ -75,9 +75,33 @@ namespace TiaOpennessApp.Services
                     .GroupBy(m => m.PositionNumber)
                     .ToDictionary(g => g.Key, g => g.Count());
 
+                // GSD: l'item estació (nom d'usuari o nom del dispositiu) i el mòdul
+                // auto-anomenat (Name == TypeName) comparteixen slot i OrderNumber
+                // (p. ex. 'UM6B_PR' i 'MDX61B+DFE32B V1.4' a slot 0). En mantenim un de
+                // sol per slot+ordre: preferim l'auto-anomenat; sinó, el primer.
+                var duplicateSkips = new HashSet<NetworkModuleInfo>();
+                foreach (var dupGroup in modules
+                    .Where(m => !CatalogService.IsWildcard(m.OrderNumber))
+                    .GroupBy(m => new { m.PositionNumber, m.OrderNumber }))
+                {
+                    if (dupGroup.Count() <= 1)
+                        continue;
+                    NetworkModuleInfo preferred = dupGroup
+                            .FirstOrDefault(m => string.Equals(m.Name, m.TypeName, StringComparison.OrdinalIgnoreCase))
+                        ?? dupGroup.First();
+                    foreach (NetworkModuleInfo candidate in dupGroup)
+                    {
+                        if (!ReferenceEquals(candidate, preferred))
+                            duplicateSkips.Add(candidate);
+                    }
+                }
+
                 foreach (NetworkModuleInfo module in modules)
                 {
                     if (CatalogService.IsWildcard(module.OrderNumber))
+                        continue;
+
+                    if (duplicateSkips.Contains(module))
                         continue;
 
                     if (module.Name.Equals(device.DeviceName, StringComparison.OrdinalIgnoreCase)
