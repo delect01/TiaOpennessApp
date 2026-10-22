@@ -62,9 +62,9 @@ namespace TiaOpennessApp.Services
             {
                 if (device.DeviceName.Length == 0)
                     continue;
-                if (!IsValidTiaName(device.DeviceName))
+                if (!IsValidVisibleDeviceName(device.DeviceName))
                     Error("Devices", device.DeviceName,
-                        "Nom TIA invàlid: ha de començar per lletra i contenir només lletres, dígits o guions baixos.");
+                        "Nom visible de dispositiu TIA invàlid: no pot contenir salts de línia ni caràcters de control i ha de tenir entre 1 i 128 caràcters.");
             }
 
             foreach (var module in doc.Modules)
@@ -392,6 +392,26 @@ namespace TiaOpennessApp.Services
                 if (!char.IsLetterOrDigit(c) && c != '_')
                     return false;
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Validacio per al <b>nom visible</b> d'un dispositiu. Es mes permesiva que
+        /// <see cref="IsValidTiaName"/> perque TIA assigna per defecte noms amb espais,
+        /// barres i guions (p. ex. "ET 200SP station_1", "S7-1500/ET200MP station_1").
+        /// Només es rebutgen caracters de control i longituds fora de 1..128.
+        /// </summary>
+        internal static bool IsValidVisibleDeviceName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 128)
+                return false;
+
+            foreach (char c in name)
+            {
+                if (char.IsControl(c))
+                    return false;
+            }
+
             return true;
         }
 
