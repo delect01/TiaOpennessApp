@@ -54,6 +54,14 @@ namespace TiaOpennessApp.Services
                         continue;
                     }
 
+                    if (CatalogService.IsGsdIdentifier(entry.Identifier))
+                    {
+                        report.Error = $"Dispositiu GSD '{spec.DeviceName}' no importat: cal un golden AML " +
+                                       $"que el contingui o inserir-lo manualment a TIA.";
+                        results.Add(report);
+                        continue;
+                    }
+
                     string itemName = DeviceNameToItemName(spec, rootItemNames);
                     Device? device = null;
                     var errors = new List<string>();

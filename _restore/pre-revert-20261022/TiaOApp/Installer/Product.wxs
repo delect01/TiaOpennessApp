@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+	  Name="TiaOpennessApp"
+	  Manufacturer="EQUIPCERAMIC S.A."
+	  Version="1.0.0.0"
+	  UpgradeCode="B7D8B5E2-DAF9-4B5A-BF4A-2F5B7AB6D5C1"
+	  Scope="perMachine">
+	<MajorUpgrade DowngradeErrorMessage="A newer version of TiaOpennessApp is already installed." />
+	<MediaTemplate EmbedCab="yes" />
+
+	<StandardDirectory Id="ProgramFiles6432Folder">
+	  <Directory Id="INSTALLFOLDER" Name="TiaOpennessApp" />
+	</StandardDirectory>
+
+	<Feature Id="MainFeature" Title="TiaOpennessApp" Level="1">
+	  <ComponentGroupRef Id="AppFiles" />
+	</Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+	  xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+	  xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Bundle
+	  Name="TiaOpennessApp"
+	  Manufacturer="EQUIPCERAMIC S.A."
+	  Version="1.0.0.0"
+	  UpgradeCode="2C04AEE6-09B5-4AA9-A6A0-9F12A9E8A1C2">
+	<BootstrapperApplication>
+	  <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="" />
+	</BootstrapperApplication>
+
+	<util:RegistrySearch
+		Id="NetFx48ReleaseSearch"
+		Variable="NetFx48Release"
+		Root="HKLM"
+		Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+		Value="Release"
+		Result="value" />
+	<util:RegistrySearch
+		Id="TiaPortalV21Search"
+		Variable="TiaPortalV21Installed"
+		Root="HKLM"
+		Key="SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Siemens Installer Assistant - TIAP21"
+		Value="DisplayVersion"
+		Result="exists" />
+
+	<bal:Condition Message=".NET Framework 4.8 or later is required. Install it from https://dotnet.microsoft.com/download/dotnet-framework/net48 and run this installer again.">
+	  WixBundleInstalled OR (NetFx48Release &gt;= 528040)
+	</bal:Condition>
+	<bal:Condition Message="Siemens TIA Portal V21 with Openness is required. Install TIA Portal V21 and run this installer again.">
+	  WixBundleInstalled OR TiaPortalV21Installed
+	</bal:Condition>
+
+	<Chain>
+	  <MsiPackage SourceFile="$(var.MsiPath)" DisplayName="TiaOpennessApp" />
+	</Chain>
+  </Bundle>
+</Wix>

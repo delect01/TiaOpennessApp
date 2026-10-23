@@ -39,7 +39,9 @@ namespace TiaOpennessApp.Services
             // TIA only allows one project open at a time: close the one opened by us first.
             _connection.CloseOwnedProject();
 
-            return _connection.Portal.Projects.Create(new DirectoryInfo(fullPath), projectName);
+            Project created = _connection.Portal.Projects.Create(new DirectoryInfo(fullPath), projectName);
+            _connection.TrackProject(created);
+            return created;
         }
     }
 }

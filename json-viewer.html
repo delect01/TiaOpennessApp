@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JSON Viewer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Consolas,monospace;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh}
+.toolbar{background:#181825;padding:10px 16px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #313244;flex-wrap:wrap}
+.toolbar h1{font-size:16px;color:#cba6f7;margin-right:auto;font-weight:600}
+.btn{background:#313244;color:#cdd6f4;border:1px solid #45475a;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}
+.btn:hover{background:#45475a;border-color:#585b70}
+.btn.primary{background:#89b4fa;color:#1e1e2e;border-color:#89b4fa}
+.btn.primary:hover{background:#74c7ec}
+.btn.danger{background:#f38ba8;color:#1e1e2e;border-color:#f38ba8}
+.btn.danger:hover{background:#eba0ac}
+.search-box{background:#313244;border:1px solid #45475a;color:#cdd6f4;padding:6px 10px;border-radius:6px;font-size:13px;width:200px}
+.search-box::placeholder{color:#6c7086}
+.search-box:focus{outline:none;border-color:#89b4fa}
+.container{display:flex;flex:1;overflow:hidden}
+.editor-panel,.viewer-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.panel-header{background:#181825;padding:8px 16px;font-size:12px;color:#6c7086;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #313244;display:flex;justify-content:space-between;align-items:center}
+textarea{flex:1;background:#1e1e2e;color:#cdd6f4;border:none;padding:16px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:14px;resize:none;line-height:1.6}
+textarea:focus{outline:none}
+.viewer-content{flex:1;overflow:auto;padding:16px;font-family:'Cascadia Code','Fira Code',Consolas,monospace;font-size:14px;line-height:1.6}
+.error-bar{background:#f38ba8;color:#1e1e2e;padding:8px 16px;font-size:13px;display:none}
+.error-bar.show{display:block}
+.divider{width:4px;background:#313244;cursor:col-resize;transition:background .15s}
+.divider:hover{background:#89b4fa}
+.json-key{color:#89b4fa}
+.json-string{color:#a6e3a1}
+.json-number{color:#fab387}
+.json-boolean{color:#cba6f7}
+.json-null{color:#6c7086}
+.json-brace{color:#f9e2af}
+.json-bracket{color:#f9e2af}
+.json-colon{color:#6c7086}
+.json-comma{color:#6c7086}
+.collapsible{cursor:pointer;user-select:none}
+.collapsible::before{content:'▼';display:inline-block;width:1em;font-size:10px;transition:transform .15s;color:#6c7086;margin-right:4px}
+.collapsible.collapsed::before{transform:rotate(-90deg)}
+.collapsible.collapsed+.json-block,.collapsible.collapsed~.json-block{display:none}
+.json-block{border-left:1px solid #313244;padding-left:12px;margin-left:4px}
+.json-ellipsis{color:#6c7086;font-style:italic}
+.match{background:#f9e2af33;border-radius:2px;padding:0 1px}
+.copy-btn{position:absolute;right:8px;top:8px}
+.stats{font-size:11px;color:#6c7086}
+.drop-zone{border:2px dashed #45475a;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:1;margin:16px;color:#6c7086;font-size:14px;transition:all .2s}
+.drop-zone.active{border-color:#89b4fa;background:#89b4fa11;color:#89b4fa}
+</style>
+</head>
+<body>
+<div class="toolbar">
+<h1>JSON Viewer</h1>
+<input type="text" class="search-box" id="searchInput" placeholder="Buscar en JSON...">
+<button class="btn" onclick="formatJSON()">Formatear</button>
+<button class="btn" onclick="minifyJSON()">Minificar</button>
+<button class="btn" onclick="toggleAll()">Expandir/Colapsar</button>
+<button class="btn" onclick="copyJSON()">Copiar</button>
+<button class="btn primary" onclick="loadFile()">Abrir archivo</button>
+<button class="btn danger" onclick="clearAll()">Limpiar</button>
+<input type="file" id="fileInput" accept=".json,.txt" style="display:none">
+<span class="stats" id="stats"></span>
+</div>
+<div class="error-bar" id="errorBar"></div>
+<div class="container">
+<div class="editor-panel" id="editorPanel">
+<div class="panel-header"><span>Entrada</span><span id="inputStats"></span></div>
+<textarea id="jsonInput" placeholder="Pega tu JSON aqui o arrastra un archivo...&#10;&#10;Tambien puedes hacer clic en 'Abrir archivo'"></textarea>
+</div>
+<div class="divider" id="divider"></div>
+<div class="viewer-panel" id="viewerPanel">
+<div class="panel-header"><span>Vista</span><button class="btn" style="padding:2px 8px;font-size:11px" onclick="copyHTML()">Copiar HTML</button></div>
+<div class="viewer-content" id="viewerContent">
+<div class="drop-zone" id="dropZone">Arrastra un archivo JSON aqui</div>
+</div>
+</div>
+</div>
+<script>
+const jsonInput=document.getElementById('jsonInput'),viewerContent=document.getElementById('viewerContent'),errorBar=document.getElementById('errorBar'),stats=document.getElementById('stats'),inputStats=document.getElementById('inputStats'),fileInput=document.getElementById('fileInput'),searchInput=document.getElementById('searchInput'),dropZone=document.getElementById('dropZone');
+let allExpanded=true,jsonData=null,matches=[],currentMatch=-1;
+jsonInput.addEventListener('input',()=>renderJSON());
+jsonInput.addEventListener('input',()=>{inputStats.textContent=jsonInput.value.length?`${jsonInput.value.length} chars`:''});
+searchInput.addEventListener('input',()=>highlightSearch());
+searchInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();navigateMatch(e.shiftKey?-1:1)}});
+fileInput.addEventListener('change',e=>{const f=e.target.files[0];if(f)readFile(f)});
+document.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('active')});
+document.addEventListener('dragleave',e=>{if(!e.relatedTarget||e.relatedTarget===document.documentElement)dropZone.classList.remove('active')});
+document.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('active');const f=e.dataTransfer.files[0];if(f)readFile(f)});
+function readFile(f){const r=new FileReader();r.onload=e=>{jsonInput.value=e.target.result;renderJSON()};r.readAsText(f)}
+function renderJSON(){const raw=jsonInput.value.trim();if(!raw){viewerContent.innerHTML='<div class="drop-zone">Arrastra un archivo JSON aqui</div>';errorBar.classList.remove('show');jsonData=null;stats.textContent='';return}try{jsonData=JSON.parse(raw);errorBar.classList.remove('show');viewerContent.innerHTML=renderValue(jsonData,0,true);stats.textContent=`${countNodes(jsonData)} nodos | ${raw.length} chars`}catch(e){errorBar.textContent='Error: '+e.message;errorBar.classList.add('show');viewerContent.innerHTML='<div class="drop-zone" style="color:#f38ba8">JSON invalido - revisa la sintaxis</div>';jsonData=null;stats.textContent=''}}
+function renderValue(v,d,comma){if(v===null)return span('null','json-null')+(comma?',':'');if(typeof v==='boolean')return span(v,'json-boolean')+(comma?',':'');if(typeof v==='number')return span(v,'json-number')+(comma?',':'');if(typeof v==='string')return span('"'+escHtml(v)+'"','json-string')+(comma?',':'');if(Array.isArray(v))return renderArray(v,d,comma);return renderObject(v,d,comma)}
+function renderObject(o,d,comma){const keys=Object.keys(o);if(!keys.length)return span('{}','json-brace')+(comma?',':'');const id='n'+Math.random().toString(36).slice(2,8);let h=`<span class="collapsible" onclick="toggle('${id}')">${span('{','json-brace')}</span><div class="json-block" id="${id}">`;keys.forEach((k,i)=>{h+=`<div>${span('"'+escHtml(k)+'"','json-key')}${span(':','json-colon')} ${renderValue(o[k],d+1,i<keys.length-1)}</div>`});h+=`</div>${span('}','json-brace')}${comma?',':''}`;return h}
+function renderArray(a,d,comma){if(!a.length)return span('[]','json-bracket')+(comma?',':'');const id='n'+Math.random().toString(36).slice(2,8);let h=`<span class="collapsible" onclick="toggle('${id}')">${span('[','json-bracket')}</span><div class="json-block" id="${id}">`;a.forEach((v,i)=>{h+=`<div>${renderValue(v,d+1,i<a.length-1)}</div>`});h+=`</div>${span(']','json-bracket')}${comma?',':''}`;return h}
+function span(t,c){return`<span class="${c}">${t}</span>`}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function toggle(id){const el=document.getElementById(id);if(!el)return;const btn=el.previousElementSibling;btn.classList.toggle('collapsed')}
+function toggleAll(){allExpanded=!allExpanded;document.querySelectorAll('.collapsible').forEach(el=>{el.classList.toggle('collapsed',!allExpanded)})}
+function formatJSON(){if(!jsonData)return;jsonInput.value=JSON.stringify(jsonData,null,2);renderJSON()}
+function minifyJSON(){if(!jsonData)return;jsonInput.value=JSON.stringify(jsonData);renderJSON()}
+function copyJSON(){navigator.clipboard.writeText(jsonInput.value);showToast('Copiado al portapapeles')}
+function copyHTML(){navigator.clipboard.writeText(viewerContent.innerHTML);showToast('HTML copiado')}
+function clearAll(){jsonInput.value='';jsonData=null;viewerContent.innerHTML='<div class="drop-zone">Arrastra un archivo JSON aqui</div>';errorBar.classList.remove('show');stats.textContent='';inputStats.textContent='';searchInput.value=''}
+function loadFile(){fileInput.click()}
+function countNodes(v){if(v===null||typeof v!=='object')return 1;let c=1;if(Array.isArray(v)){v.forEach(x=>c+=countNodes(x))}else{Object.values(v).forEach(x=>c+=countNodes(x))}return c}
+function highlightSearch(){document.querySelectorAll('.match').forEach(el=>{el.outerHTML=el.textContent});const q=searchInput.value.trim();if(!q){matches=[];currentMatch=-1;return}const html=viewerContent.innerHTML;const re=new RegExp('('+escRegex(q)+')','gi');let idx=0;viewerContent.innerHTML=html.replace(/>([^<]+)</g,(m,text)=>{if(re.test(text)){re.lastIndex=0;return'>'+text.replace(re,m=>`<span class="match" data-mi="${idx++}">${m}</span>`)+'<'}});matches=viewerContent.querySelectorAll('.match');currentMatch=matches.length?0:-1;if(currentMatch>=0)matches[0].scrollIntoView({behavior:'smooth',block:'center'})}
+function navigateMatch(dir){if(!matches.length)return;currentMatch=(currentMatch+dir+matches.length)%matches.length;matches[currentMatch].scrollIntoView({behavior:'smooth',block:'center'});matches[currentMatch].style.background='#f9e2af55';setTimeout(()=>matches[currentMatch].style.background='',800)}
+function escRegex(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function showToast(msg){const t=document.createElement('div');t.textContent=msg;t.style.cssText='position:fixed;bottom:20px;right:20px;background:#a6e3a1;color:#1e1e2e;padding:8px 16px;border-radius:6px;font-size:13px;z-index:999;font-family:sans-serif';document.body.appendChild(t);setTimeout(()=>t.remove(),1500)}
+const divider=document.getElementById('divider'),editorPanel=document.getElementById('editorPanel'),viewerPanel=document.getElementById('viewerPanel');let dragging=false;divider.addEventListener('mousedown',()=>{dragging=true;document.body.style.cursor='col-resize';document.body.style.userSelect='none'});document.addEventListener('mousemove',e=>{if(!dragging)return;const pct=e.clientX/window.innerWidth*100;if(pct>20&&pct<80){editorPanel.style.flex=`0 0 ${pct}%`;viewerPanel.style.flex=`0 0 ${100-pct}%`}});document.addEventListener('mouseup',()=>{dragging=false;document.body.style.cursor='';document.body.style.userSelect=''});
+</script>
+</body>
+</html>

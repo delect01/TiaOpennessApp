@@ -69,7 +69,22 @@ namespace TiaOpennessApp.Services
                     NetworkInterface? netIf = GetNetworkInterface(item);
                     if (netIf == null)
                     {
-                        report.Error = "'" + spec.InterfaceItem + "' no ofereix servei NetworkInterface.";
+                        bool hasPendingConfiguration =
+                            !string.IsNullOrWhiteSpace(spec.Subnet)
+                            || !string.IsNullOrWhiteSpace(spec.IpAddress)
+                            || !string.IsNullOrWhiteSpace(spec.SubnetMask)
+                            || !string.IsNullOrWhiteSpace(spec.PnDeviceName);
+
+                        if (hasPendingConfiguration)
+                        {
+                            report.Error = "'" + spec.InterfaceItem + "' no ofereix servei NetworkInterface.";
+                        }
+                        else
+                        {
+                            report.Skipped = true;
+                            report.Message = "sense servei NetworkInterface i sense configuració pendent";
+                        }
+
                         results.Add(report);
                         continue;
                     }

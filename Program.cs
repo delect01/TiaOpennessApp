@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -46,6 +47,8 @@ namespace TiaOpennessApp
 
         static void Main(string[] args)
         {
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
+
             if (args.Length > 0)
             {
                 RunCliMode(args);
@@ -55,7 +58,7 @@ namespace TiaOpennessApp
             Console.WriteLine("╔════════════════════════════════════════════════╗");
             Console.WriteLine("║      EQUIPCERAMIC S.A. - Engineering Tool      ║");
             Console.WriteLine("║       TIA Portal Openness V21 / .NET 4.8       ║");
-            Console.WriteLine("║                                                ║");
+            Console.WriteLine("║                 VSC - VERSION                  ║");
             Console.WriteLine("╚════════════════════════════════════════════════╝");
             Console.WriteLine();
 
@@ -94,11 +97,27 @@ namespace TiaOpennessApp
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"\nERROR connecting to TIA Portal: {ex.Message}");
-                if (ex.InnerException != null)
-                    Console.WriteLine($"  Inner: {ex.InnerException.Message}");
+                Console.WriteLine($"  Type: {ex.GetType().FullName}");
+                for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                    Console.WriteLine($"  Inner: {inner.GetType().FullName}: {inner.Message}");
+                if (ex.Message.IndexOf("not permitted", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("The executable is not in the TIA Portal Openness V21 AllowList.");
+                    Console.WriteLine("Run fix_allowlist.bat as Administrator, then start the app again.");
+                    Console.WriteLine("Check the current entry with: TiaOpennessApp.exe --check-allowlist");
+                }
+                else if (ex.Message.IndexOf("elevation", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Starting TIA Portal needs an elevated process on this machine.");
+                    Console.WriteLine("Launch the tool from an elevated console (or run run_app.bat elevated).");
+                }
+                if (Environment.GetEnvironmentVariable("TIA_OPENNESS_DEBUG") == "1")
+                    Console.WriteLine(ex.ToString());
                 Console.ResetColor();
                 Console.WriteLine("\nDone. Press any key to exit.");
-                Console.ReadKey(true);
+                WaitForKey();
                 return;
             }
 
@@ -117,6 +136,11 @@ namespace TiaOpennessApp
                     Console.WriteLine("└──────────────────────────────────────┘");
                     Console.Write("Select: ");
                     string? choice = Console.ReadLine()?.Trim();
+                    if (choice == null)
+                    {
+                        // stdin closed/redirected (debugger, CI): leave the menu instead of spinning.
+                        return;
+                    }
                     switch (choice)
                     {
                         case "1":
@@ -145,7 +169,7 @@ namespace TiaOpennessApp
                         Console.WriteLine($"  Inner: {ex.InnerException.Message}");
                     Console.ResetColor();
                     Console.WriteLine("\nPress any key to continue...");
-                    Console.ReadKey(true);
+                    WaitForKey();
                     Console.Clear();
                 }
             }
@@ -156,7 +180,19 @@ namespace TiaOpennessApp
                 Console.WriteLine("\nClosing headless TIA Portal instance...");
 
             Console.WriteLine("Done. Press any key to exit.");
-            Console.ReadKey(true);
+            WaitForKey();
+        }
+
+        /// <summary>
+        /// Blocks for a keypress only when a real console is attached. With redirected
+        /// stdin (VS Code, CI, pipes) Console.ReadKey throws, so fall back to ReadLine.
+        /// </summary>
+        private static void WaitForKey()
+        {
+            if (Console.IsInputRedirected)
+                Console.ReadLine();
+            else
+                Console.ReadKey(true);
         }
 
         private static void RunCliMode(string[] args)
@@ -166,6 +202,12 @@ namespace TiaOpennessApp
             if (command == "--check-allowlist")
             {
                 CheckAllowlist();
+                return;
+            }
+
+            if (command == "--fix-allowlist")
+            {
+                FixAllowlist();
                 return;
             }
 
@@ -815,6 +857,23 @@ namespace TiaOpennessApp
         {
             if (connection.HasOpenProject)
             {
+                // Never export the golden from the destination sandbox: it only contains the
+                // devices created so far, so the GSD devices would be missing.
+                if (string.Equals(connection.Project.Name, projectName, StringComparison.OrdinalIgnoreCase))
+                {
+                    string? configuredGolden = AppConfig["Import:GoldenAmlPath"];
+                    if (!string.IsNullOrWhiteSpace(configuredGolden) && File.Exists(configuredGolden))
+                    {
+                        Console.WriteLine($"\nProjecte obert = destí '{projectName}'; s'usarà el golden AML configurat: {configuredGolden}");
+                        connection.CloseProject();
+                        return Path.GetFullPath(configuredGolden!);
+                    }
+
+                    Console.WriteLine($"\n(avís) el projecte obert és el destí '{projectName}' i no pot generar el golden dels GSD.");
+                    connection.CloseProject();
+                    return ResolveConfiguredGoldenAml();
+                }
+
                 string goldenAml = Path.Combine(Path.GetTempPath(), $"golden_menu_{projectName}_{DateTime.Now:HHmmss}.aml");
                 string goldenLog = goldenAml + ".log";
                 string? result = null;
@@ -826,6 +885,7 @@ namespace TiaOpennessApp
                     if (goldenFile.Exists && goldenFile.Length > 0)
                     {
                         Console.WriteLine($"Golden AML: generat ({goldenFile.Length} bytes, success={goldenExportOk}) -> {goldenAml}");
+                        PersistAppSettings(("Import:GoldenAmlPath", goldenAml));
                         result = goldenAml;
                     }
                     else
@@ -843,6 +903,11 @@ namespace TiaOpennessApp
                 return result;
             }
 
+            return ResolveConfiguredGoldenAml();
+        }
+
+        private static string? ResolveConfiguredGoldenAml()
+        {
             string configuredGolden = AppConfig["Import:GoldenAmlPath"] ?? string.Empty;
             string goldenInput = ReadOptionalValue("Golden AML path (buit = sense importar GSD)", configuredGolden);
             if (!string.Equals(goldenInput, configuredGolden, StringComparison.Ordinal))
@@ -1213,62 +1278,158 @@ namespace TiaOpennessApp
             Environment.ExitCode = pass ? 0 : 1;
         }
 
+        // TIA Portal Openness V21 firewall entry (version-independent AllowList):
+        //   HKLM\SOFTWARE\Siemens\Automation\Openness\AllowList\<exe>\Entry
+        //     Path         = full path of the executable
+        //     DateModified = last write time in UTC, "yyyy/MM/dd HH:mm:ss.fff"
+        //     FileHash     = SHA-256 of the executable, base64 encoded
+        // V20 and older used SHA1 + local time under ...\<version>\Whitelist, which is
+        // why the legacy scripts no longer satisfy the V21 firewall.
+        private const string AllowListRoot =
+            @"SOFTWARE\Siemens\Automation\Openness\AllowList";
+
         private static void CheckAllowlist()
         {
-            const string exeName = "TiaOpennessApp.exe";
+            string exePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TiaOpennessApp.exe");
+            bool exists = File.Exists(exePath);
+            string name = Path.GetFileName(exePath);
 
-            string exePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, exeName);
-            string currentHash = ComputeSha1(exePath);
-            bool isAdmin = false;
-            try
-            {
-                var identity = WindowsIdentity.GetCurrent();
-                var principal = new WindowsPrincipal(identity);
-                isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch { }
+            string expectedPath = exePath;
+            string expectedDate = exists
+                ? File.GetLastWriteTimeUtc(exePath).ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
+                : "(exe not found)";
+            string expectedHash = exists ? ComputeSha256Base64(exePath) : "(exe not found)";
 
-            Console.WriteLine($"Exe        : {exePath}");
-            Console.WriteLine($"Existeix   : {File.Exists(exePath)}");
-            Console.WriteLine($"SHA1 actual: {currentHash}");
-            Console.WriteLine($"Consola    : {(isAdmin ? "PROVAT AMB ADMIN (elevada)" : "NO elevada")}");
+            Console.WriteLine($"Exe         : {exePath}");
+            Console.WriteLine($"Existeix    : {exists}");
+            Console.WriteLine($"Path        : {expectedPath}");
+            Console.WriteLine($"DateModified: {expectedDate} (UTC)");
+            Console.WriteLine($"FileHash    : {expectedHash} (SHA-256 base64)");
+            Console.WriteLine($"Consola     : {(IsAdministrator() ? "elevada" : "NO elevada")}");
             Console.WriteLine();
 
-            const string keyPath = @"SOFTWARE\Siemens\Automation\Openness\AllowList\TiaOpennessApp.exe\Entry";
+            string keyPath = $@"{AllowListRoot}\{name}";
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(keyPath);
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(keyPath);
                 if (key == null)
                 {
-                    Console.WriteLine("AllowList   : NO EXISTEIX -> TIA rebutjarà l'app.");
+                    Console.WriteLine("AllowList   : cap entrada -> TIA rebutjarà l'app.");
+                    Console.WriteLine("              Executa fix_allowlist.bat com a administrador.");
+                    Environment.ExitCode = 1;
                     return;
                 }
 
-                string registeredPath = (key.GetValue("Path") as string) ?? string.Empty;
-                string registeredDate = (key.GetValue("DateModified") as string) ?? string.Empty;
-                string registeredHash = (key.GetValue("FileHash") as string) ?? string.Empty;
+                string[] entryNames = key.GetSubKeyNames();
+                var matches = new List<string>();
+                string? newestPath = null;
+                string newestDate = string.Empty;
 
-                Console.WriteLine($"AllowList OK: {registeredPath}");
-                Console.WriteLine($"  DateModified: {registeredDate}");
-                Console.WriteLine($"  FileHash    : {registeredHash}");
-                Console.WriteLine($"  Coincideix  : {string.Equals(registeredHash, currentHash, StringComparison.OrdinalIgnoreCase)}");
-                Console.WriteLine();
-                Console.WriteLine("Conclusió: " +
-                    (string.Equals(registeredHash, currentHash, StringComparison.OrdinalIgnoreCase)
-                        ? "hash OK -> si falla TIA, el motiu és un altre (elevació o diàleg Openness)."
-                        : "hash DESACTUALITZAT -> reexecuta run_app.bat / run_roundtrip.bat (consola ADMIN)."));
+                foreach (string entryName in entryNames)
+                {
+                    using var entry = key.OpenSubKey(entryName);
+                    if (entry == null) continue;
+
+                    string path = (entry.GetValue("Path") as string) ?? string.Empty;
+                    string date = (entry.GetValue("DateModified") as string) ?? string.Empty;
+                    string hash = (entry.GetValue("FileHash") as string) ?? string.Empty;
+
+                    bool ok = exists
+                        && string.Equals(path, expectedPath, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(date, expectedDate, StringComparison.Ordinal)
+                        && string.Equals(hash, expectedHash, StringComparison.Ordinal);
+
+                    if (ok) matches.Add(entryName);
+                    if (string.CompareOrdinal(date, newestDate) > 0)
+                    {
+                        newestDate = date;
+                        newestPath = path;
+                    }
+                }
+
+                if (matches.Count > 0)
+                {
+                    Console.WriteLine($"AllowList OK: {matches.Count} entrada(es) coincideixen " +
+                                      $"({string.Join(", ", matches)}).");
+                    Environment.ExitCode = 0;
+                }
+                else
+                {
+                    Console.WriteLine($"AllowList DESACTUALITZADA: {entryNames.Length} entrada(es), cap coincideix.");
+                    if (newestPath != null)
+                        Console.WriteLine($"  mes recent: {newestDate} -> {newestPath}");
+                    Console.WriteLine("Executa fix_allowlist.bat com a administrador despres de recompilar.");
+                    Environment.ExitCode = 1;
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error llegint el registre (cal ADMIN?): {ex.Message}");
+                Console.WriteLine($"Error llegint el registre: {ex.Message}");
+                Environment.ExitCode = 2;
             }
         }
 
-        private static string ComputeSha1(string filePath)
+        /// <summary>
+        /// Registers (or refreshes) the V21 AllowList entry for this executable.
+        /// Must run elevated because the AllowList lives under HKLM.
+        /// </summary>
+        private static void FixAllowlist()
         {
-            using var sha1 = SHA1.Create();
+            string exePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TiaOpennessApp.exe");
+            if (!File.Exists(exePath))
+            {
+                Console.WriteLine($"No existeix l'executable: {exePath}");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            if (!IsAdministrator())
+            {
+                Console.WriteLine("Cal executar-ho com a administrador: l'AllowList és a HKLM.");
+                Console.WriteLine("Obre fix_allowlist.bat (doble clic) o eleva la consola.");
+                Environment.ExitCode = 5;
+                return;
+            }
+
+            string name = Path.GetFileName(exePath);
+            string dateModified = File.GetLastWriteTimeUtc(exePath)
+                .ToString("yyyy/MM/dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+            string fileHash = ComputeSha256Base64(exePath);
+            string keyPath = $@"{AllowListRoot}\{name}\Entry";
+
+            using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+            using var entry = baseKey.CreateSubKey(keyPath, writable: true);
+            entry.SetValue("Path", exePath, RegistryValueKind.String);
+            entry.SetValue("DateModified", dateModified, RegistryValueKind.String);
+            entry.SetValue("FileHash", fileHash, RegistryValueKind.String);
+
+            Console.WriteLine("AllowList actualitzada:");
+            Console.WriteLine($"  HKLM\\{keyPath}");
+            Console.WriteLine($"  Path        = {exePath}");
+            Console.WriteLine($"  DateModified= {dateModified}");
+            Console.WriteLine($"  FileHash    = {fileHash}");
+            Environment.ExitCode = 0;
+        }
+
+        private static bool IsAdministrator()
+        {
+            try
+            {
+                return new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                    .IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static string ComputeSha256Base64(string filePath)
+        {
+            using var sha256 = SHA256.Create();
             using var stream = File.OpenRead(filePath);
-            return BitConverter.ToString(sha1.ComputeHash(stream)).Replace("-", string.Empty);
+            return Convert.ToBase64String(sha256.ComputeHash(stream));
         }
 
         private static bool IsGsdError(string message)
@@ -1883,9 +2044,9 @@ namespace TiaOpennessApp
             Console.WriteLine("├────────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                   │");
             Console.WriteLine("│  2. Network Devices Tree           │");
-            Console.WriteLine("│  3. Export Docs → 5 CSV files       │");
+            Console.WriteLine("│  3. Export Docs → 5 CSV files      │");
             Console.WriteLine("│  4. Generate Catalog → Catalog.csv │");
-            Console.WriteLine("│  0. Exit                           │");
+            Console.WriteLine("│  0. Return                         │");
             Console.WriteLine("└────────────────────────────────────┘");
             Console.Write("Select: ");
         }
@@ -2012,6 +2173,11 @@ namespace TiaOpennessApp
             {
                 PrintMenu();
                 string? choice = Console.ReadLine()?.Trim();
+                if (choice == null)
+                {
+                    Console.WriteLine();
+                    return false;
+                }
 
                 switch (choice)
                 {
@@ -2036,7 +2202,7 @@ namespace TiaOpennessApp
                 }
 
                 Console.WriteLine("\nPress any key to continue...");
-                Console.ReadKey(true);
+                WaitForKey();
                 Console.Clear();
             }
             return false;

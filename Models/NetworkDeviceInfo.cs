@@ -27,6 +27,7 @@ namespace TiaOpennessApp.Models
         public string Name { get; set; } = string.Empty;
         public string TypeName { get; set; } = string.Empty;
         public string OrderNumber { get; set; } = string.Empty;
+        public string TypeIdentifier { get; set; } = string.Empty;
         public int PositionNumber { get; set; }
     }
 }

@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "dotnet",
+			"task": "build C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\TiaOpennessApp.csproj",
+			"file": "C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\TiaOpennessApp.csproj",
+			"group": "build",
+			"problemMatcher": [],
+			"label": "dotnet: build C:\\Users\\DPTO_ELECT\\Documents\\TIA Portal Openness\\TiaOpennessApp.csproj"
+		},
+		{
+			"label": "build + refresh Openness AllowList",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"dotnet build 'TiaOpennessApp.csproj' -c Debug --nologo -v q; & '.\\bin\\Debug\\net48\\TiaOpennessApp.exe' --check-allowlist *> $null; if ($LASTEXITCODE -ne 0) { Start-Process -FilePath '.\\bin\\Debug\\net48\\TiaOpennessApp.exe' -ArgumentList '--fix-allowlist' -Verb RunAs -Wait }"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		}
+	]
+}

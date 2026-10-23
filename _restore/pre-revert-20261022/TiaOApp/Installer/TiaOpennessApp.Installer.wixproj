@@ -1,0 +1,14 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+  <PropertyGroup>
+	<OutputName>TiaOpennessApp-Setup</OutputName>
+	<DefineConstants>AppSourceDir=$(MSBuildProjectDirectory)\..\bin\Debug\net48</DefineConstants>
+	<EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+	<Compile Include="Product.wxs" />
+	<Compile Include="AppFiles.wxs" />
+	<PackageReference Include="WixToolset.Bal.wixext" Version="6.0.2" />
+	<PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+  </ItemGroup>
+</Project>

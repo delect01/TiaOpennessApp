@@ -66,10 +66,10 @@ namespace TiaOpennessApp.Services
                 var root = FindRoot(device, modules);
 
                 if (root != null)
-                    AddCandidate(result, seen, root.OrderNumber, root.TypeName, CatalogItemRole.Root);
+                    AddCandidate(result, seen, root.OrderNumber, root.TypeName, CatalogItemRole.Root, root.TypeIdentifier);
 
                 foreach (var module in modules)
-                    AddCandidate(result, seen, module.OrderNumber, module.TypeName, CatalogItemRole.Module);
+                    AddCandidate(result, seen, module.OrderNumber, module.TypeName, CatalogItemRole.Module, module.TypeIdentifier);
             }
 
             return result;
@@ -90,6 +90,19 @@ namespace TiaOpennessApp.Services
             if (root != null)
                 return root;
 
+            // Third-party GSD stations: the device order number is usually a wildcard
+            // placeholder (182xxxxx) while the real identity lives in TypeIdentifier.
+            root = modules.FirstOrDefault(m =>
+                IsGsdIdentifier(m.TypeIdentifier)
+                && m.TypeIdentifier.EndsWith("/D", StringComparison.OrdinalIgnoreCase));
+
+            if (root != null)
+                return root;
+
+            root = modules.FirstOrDefault(m => IsGsdIdentifier(m.TypeIdentifier));
+            if (root != null)
+                return root;
+
             string deviceOrder = device.DeviceOrderNumber ?? string.Empty;
             if (!IsWildcard(deviceOrder))
                 return new NetworkModuleInfo { OrderNumber = deviceOrder, TypeName = device.StationType };
@@ -97,14 +110,30 @@ namespace TiaOpennessApp.Services
             return modules.FirstOrDefault(m => !IsWildcard(m.OrderNumber));
         }
 
-        private static void AddCandidate(List<CatalogEntry> result, HashSet<string> seen, string orderNumber, string typeName, CatalogItemRole role)
+        private static void AddCandidate(
+            List<CatalogEntry> result,
+            HashSet<string> seen,
+            string orderNumber,
+            string typeName,
+            CatalogItemRole role,
+            string? typeIdentifier)
         {
-            if (IsWildcard(orderNumber))
+            string identifier = (typeIdentifier ?? string.Empty).Trim();
+            if (IsWildcard(orderNumber) && identifier.Length == 0)
                 return;
 
             string mlfb = NormalizeMlfb(orderNumber);
+            if (mlfb.Length == 0 && identifier.StartsWith("OrderNumber:", StringComparison.OrdinalIgnoreCase))
+            {
+                string fromIdentifier = identifier.Substring("OrderNumber:".Length);
+                int versionIndex = fromIdentifier.IndexOf('/');
+                if (versionIndex >= 0)
+                    fromIdentifier = fromIdentifier.Substring(0, versionIndex);
+                mlfb = NormalizeMlfb(fromIdentifier);
+            }
+
             string typeKey = ToTypeKey(typeName);
-            if (mlfb.Length == 0 || typeKey.Length == 0)
+            if (typeKey.Length == 0)
                 return;
 
             var entry = new CatalogEntry
@@ -113,6 +142,7 @@ namespace TiaOpennessApp.Services
                 Mlfb = mlfb,
                 TiaVersion = DefaultTiaVersion,
                 Role = role,
+                Identifier = identifier,
             };
 
             if (seen.Add(Key(entry)))
@@ -126,7 +156,18 @@ namespace TiaOpennessApp.Services
 
         internal static bool IsWildcard(string? orderNumber)
         {
-            return string.IsNullOrWhiteSpace(orderNumber) || orderNumber.Contains('*');
+            if (string.IsNullOrWhiteSpace(orderNumber))
+                return true;
+            string value = orderNumber!;
+            if (value.IndexOf('*') >= 0)
+                return true;
+            return value.IndexOf('x') >= 0 || value.IndexOf('X') >= 0;
+        }
+
+        internal static bool IsGsdIdentifier(string? typeIdentifier)
+        {
+            return !string.IsNullOrWhiteSpace(typeIdentifier)
+                && typeIdentifier!.StartsWith("GSD:", StringComparison.OrdinalIgnoreCase);
         }
 
         internal static string NormalizeMlfb(string orderNumber)

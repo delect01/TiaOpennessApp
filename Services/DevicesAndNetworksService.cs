@@ -79,6 +79,7 @@ namespace TiaOpennessApp.Services
                             Name = item.Name,
                             TypeName = GetTypeName(item) ?? string.Empty,
                             OrderNumber = orderNumber ?? string.Empty,
+                            TypeIdentifier = SafeTypeIdentifier(item),
                             PositionNumber = item.PositionNumber,
                         });
                     }
@@ -366,6 +367,12 @@ namespace TiaOpennessApp.Services
         {
             try { return (obj as IEngineeringObject)?.GetAttribute("TypeName") as string; }
             catch { return null; }
+        }
+
+        private static string SafeTypeIdentifier(DeviceItem item)
+        {
+            try { return item.TypeIdentifier ?? string.Empty; }
+            catch { return string.Empty; }
         }
 
         private static string? GetAttr(object obj, string name)

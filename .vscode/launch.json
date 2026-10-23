@@ -1,0 +1,25 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // net48 app: use the .NET Framework debugger ("clr"), not "coreclr".
+            "name": "TiaOpennessApp (net48)",
+            "type": "clr",
+            "request": "launch",
+            "preLaunchTask": "build + refresh Openness AllowList",
+            "program": "${workspaceFolder}\\bin\\Debug\\net48\\TiaOpennessApp.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}\\bin\\Debug\\net48",
+            "console": "integratedTerminal",
+            "stopAtEntry": false
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach"
+        }
+    ]
+}

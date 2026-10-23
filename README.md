@@ -17,16 +17,33 @@ the Openness API to inspect and export project data.
 ## Build
 
 ```powershell
-cd "C:\Users\DPTO_ELECT\Documents\TIA Portal Openness\TiaOpennessApp"
-dotnet build
+cd "C:\Users\DPTO_ELECT\Documents\TIA Portal Openness"
+dotnet build TiaOpennessApp.csproj -c Debug
 ```
+
+Or use `build.bat`, which builds and then refreshes the Openness AllowList.
 
 ## Allowlist Registration (after every rebuild)
 
 ```cmd
 fix_allowlist.bat
 ```
-Run as Administrator. Updates the HKLM registry entry with the current exe hash.
+
+Changes the executable's path, modification date or hash, so every rebuild must be
+re-registered. The script self-elevates (UAC) and writes the TIA Portal Openness V21
+entry (`HKLM\SOFTWARE\Siemens\Automation\Openness\AllowList\TiaOpennessApp.exe\Entry`)
+using the official format: SHA-256 (base64) and the UTC last-write time. It is a
+no-op when the current binary is already registered.
+
+Status can be checked without elevation:
+
+```cmd
+bin\Debug\net48\TiaOpennessApp.exe --check-allowlist
+```
+
+Note: `Siemens.Automation.Portal.exe` must **not** have the "Run this program as
+administrator" compatibility flag, otherwise non-elevated Openness applications
+cannot start TIA Portal (`ERROR_ELEVATION_REQUIRED`).
 
 ## Configuration
 

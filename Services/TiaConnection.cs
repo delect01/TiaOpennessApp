@@ -130,6 +130,16 @@ namespace TiaOpennessApp.Services
             OpenedProject = true;
         }
 
+        /// <summary>
+        /// Registers a project that was created through the portal but not opened through
+        /// <see cref="OpenProject"/>, so later Save/Close/Open calls operate on it.
+        /// </summary>
+        public void TrackProject(Project project)
+        {
+            _project = project;
+            OpenedProject = true;
+        }
+
         /// <summary>Closes the project only if this connection opened it; never closes a project the GUI already had open.</summary>
         public void CloseOwnedProject()
         {
