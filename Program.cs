@@ -58,7 +58,7 @@ namespace TiaOpennessApp
             Console.WriteLine("╔════════════════════════════════════════════════╗");
             Console.WriteLine("║      EQUIPCERAMIC S.A. - Engineering Tool      ║");
             Console.WriteLine("║       TIA Portal Openness V21 / .NET 4.8       ║");
-            Console.WriteLine("║                 VSC - VERSION                  ║");
+            Console.WriteLine("║             VERSION 1.0.0 (delect01)           ║");
             Console.WriteLine("╚════════════════════════════════════════════════╝");
             Console.WriteLine();
 
