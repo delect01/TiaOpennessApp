@@ -364,3 +364,7 @@ FodyWeavers.xsd
 
 # Heap snapshots (Node/opencode diagnostics - huge, never commit)
 *.heapsnapshot
+
+# Local backups and generated export outputs
+_restore/
+/exports/
