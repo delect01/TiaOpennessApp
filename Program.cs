@@ -15,6 +15,7 @@ using Siemens.Engineering.Cax;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
 using TiaOpennessApp.Models;
+using TiaOpennessApp.Models.Database;
 using TiaOpennessApp.Models.Generation;
 using TiaOpennessApp.Services;
 
@@ -132,6 +133,8 @@ namespace TiaOpennessApp
                     Console.WriteLine("│  1. Open an existing project         │");
                     Console.WriteLine("│  2. Create a new project             │");
                     Console.WriteLine("│  3. Generate project from documents  │");
+                    Console.WriteLine("│  4. Import CSVs to SQLite database   │");
+                    Console.WriteLine("│  5. Export SQLite database to CSVs   │");
                     Console.WriteLine("│  0. Exit                             │");
                     Console.WriteLine("└──────────────────────────────────────┘");
                     Console.Write("Select: ");
@@ -152,12 +155,18 @@ namespace TiaOpennessApp
                         case "3":
                             GenerateProjectFromDocumentsFlow(connection);
                             break;
+                        case "4":
+                            ImportDatabaseFlow();
+                            break;
+                        case "5":
+                            ExportDatabaseFlow();
+                            break;
                         case "0":
                             Console.WriteLine("Exiting...");
                             exitRequested = true;
                             break;
                         default:
-                            Console.WriteLine("Invalid option. Select 1, 2, 3 or 0: ");
+                            Console.WriteLine("Invalid option. Select 1, 2, 3, 4, 5 or 0: ");
                             break;
                     }
                 }
@@ -759,12 +768,58 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--import-db")
+            {
+                var databaseService = new DatabaseImportService();
+                string dbPath = args.Length >= 2 ? args[1] : databaseService.DefaultDbPath;
+                string importsDir = args.Length >= 3 ? args[2] : databaseService.DefaultImportsDir;
+
+                DbImportResult dbResult = databaseService.ImportFromImports(dbPath, importsDir);
+
+                Console.WriteLine($"Imports directory: {dbResult.ImportsDir}");
+                Console.WriteLine($"Database file:     {dbResult.DbPath}");
+                foreach (DbTableCount count in dbResult.TableCounts)
+                    Console.WriteLine($"  {count.TableName,-20} {count.Count,8}");
+                foreach (string error in dbResult.Errors)
+                    Console.WriteLine($"  ERROR: {error}");
+                Console.WriteLine(dbResult.Success
+                    ? $"Import completed in {dbResult.Elapsed.TotalSeconds:0.00}s."
+                    : $"Import finished with {dbResult.Errors.Count} error(s) in {dbResult.Elapsed.TotalSeconds:0.00}s.");
+                return;
+            }
+
+            if (command == "--db-to-csv")
+            {
+                var dbExportService = new DatabaseExportService();
+                string dbPath = args.Length >= 2 ? args[1] : dbExportService.DefaultDbPath;
+                string outputDir = args.Length >= 3
+                    ? args[2]
+                    : AppConfig["Export:DocsPath"] ?? dbExportService.DefaultOutputDir;
+                string catalogPath = args.Length >= 4
+                    ? args[3]
+                    : AppConfig["Export:CatalogPath"] ?? dbExportService.DefaultCatalogPath;
+
+                DbExportResult dbExportResult = dbExportService.ExportToCsv(dbPath, outputDir, catalogPath);
+
+                Console.WriteLine($"Database file:  {dbExportResult.DbPath}");
+                Console.WriteLine($"CSV output dir: {dbExportResult.OutputDir}");
+                Console.WriteLine($"Catalog file:   {dbExportResult.CatalogPath}");
+                foreach (DbFileCount count in dbExportResult.FileCounts)
+                    Console.WriteLine($"  {Path.GetFileName(count.FileName),-22} {count.Count,8}");
+                foreach (string error in dbExportResult.Errors)
+                    Console.WriteLine($"  ERROR: {error}");
+                Console.WriteLine(dbExportResult.Success
+                    ? $"Export completed in {dbExportResult.Elapsed.TotalSeconds:0.00}s."
+                    : $"Export finished with {dbExportResult.Errors.Count} error(s) in {dbExportResult.Elapsed.TotalSeconds:0.00}s.");
+                return;
+            }
+
             Console.WriteLine($"Unknown command: {args[0]}");
             Console.WriteLine("Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx | " +
                               "--xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox | " +
                               "--generate-project | --roundtrip-test | --diff-topology | --dump-type-id | " +
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
-                              "--dump-hw-items | --gsd-cax-poc | --export-cax-project");
+                              "--dump-hw-items | --gsd-cax-poc | --export-cax-project | --import-db | --db-to-csv");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir)
@@ -831,6 +886,104 @@ namespace TiaOpennessApp
                     map[device.DeviceName] = module.ModuleName;
             }
             return map;
+        }
+
+        private static void ImportDatabaseFlow()
+        {
+            Console.WriteLine("\n═══ IMPORT CSVS TO SQLITE DATABASE ═══");
+
+            var service = new DatabaseImportService();
+            string dbPath = service.DefaultDbPath;
+            string importsDir = service.DefaultImportsDir;
+
+            Console.WriteLine($"Imports directory: {importsDir}");
+            Console.WriteLine($"Database file:     {dbPath}");
+
+            if (File.Exists(dbPath))
+            {
+                Console.Write("\nThe database already exists and will be overwritten. Continue? [y/N]: ");
+                string? answer = Console.ReadLine()?.Trim();
+                if (answer == null || !answer.Equals("y", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("Cancelled.");
+                    return;
+                }
+            }
+
+            DbImportResult result = service.ImportFromImports(dbPath, importsDir);
+
+            if (result.Success)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"\nImport completed in {result.Elapsed.TotalSeconds:0.00}s.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\nImport finished with {result.Errors.Count} error(s) in {result.Elapsed.TotalSeconds:0.00}s.");
+                Console.ResetColor();
+            }
+
+            if (result.TableCounts.Count > 0)
+            {
+                Console.WriteLine("\nRows per table:");
+                foreach (DbTableCount count in result.TableCounts)
+                    Console.WriteLine($"  {count.TableName,-20} {count.Count,8}");
+            }
+
+            foreach (string error in result.Errors)
+                Console.WriteLine($"  ERROR: {error}");
+        }
+
+        private static void ExportDatabaseFlow()
+        {
+            Console.WriteLine("\n═══ EXPORT SQLITE DATABASE TO CSVS ═══");
+
+            var service = new DatabaseExportService();
+            string dbPath = service.DefaultDbPath;
+            string? outputDir = AppConfig["Export:DocsPath"];
+            if (string.IsNullOrWhiteSpace(outputDir))
+                outputDir = service.DefaultOutputDir;
+            string? catalogPath = AppConfig["Export:CatalogPath"];
+            if (string.IsNullOrWhiteSpace(catalogPath))
+                catalogPath = service.DefaultCatalogPath;
+
+            Console.WriteLine($"Database file:  {dbPath}");
+            Console.WriteLine($"CSV output dir: {outputDir}");
+            Console.WriteLine($"Catalog file:   {catalogPath}");
+
+            if (!File.Exists(dbPath))
+            {
+                Console.WriteLine($"\nDatabase not found: {dbPath}");
+                Console.WriteLine("Run option 4 (or --import-db) first.");
+                return;
+            }
+
+            DbExportResult result = service.ExportToCsv(dbPath, outputDir, catalogPath);
+
+            if (result.Success)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"\nExport completed in {result.Elapsed.TotalSeconds:0.00}s.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\nExport finished with {result.Errors.Count} error(s) in {result.Elapsed.TotalSeconds:0.00}s.");
+                Console.ResetColor();
+            }
+
+            if (result.FileCounts.Count > 0)
+            {
+                Console.WriteLine("\nRows per file:");
+                foreach (DbFileCount count in result.FileCounts)
+                    Console.WriteLine($"  {Path.GetFileName(count.FileName),-22} {count.Count,8}");
+            }
+
+            foreach (string error in result.Errors)
+                Console.WriteLine($"  ERROR: {error}");
         }
 
         private static void GenerateProjectFromDocumentsFlow(TiaConnection connection)
