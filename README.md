@@ -83,6 +83,8 @@ are saved back to `appsettings.json` automatically.
 | 1. Open an existing project | Opens the project (`TiaPortal:ProjectPath`/`ProjectName`) and shows the project submenu below |
 | 2. Create a new project | `ProjectComposition.Create`, validates an empty destination folder |
 | 3. Generate project from documents | Full pipeline: parse -> validate -> devices/modules/subnets/interfaces -> `Save()`; no auto-comparison; use `--diff-topology` to compare two JSON exports |
+| 4. Import CSVs to SQLite database | Builds `tia_topology.db` (7 tables, FKs, `vw_device_topology`/`vw_io_mapping`) from `imports/` + `catalog/Catalog.csv`; overwrites the existing DB after confirmation |
+| 5. Export SQLite database to CSVs | Reverse of option 4: regenerates the 6 CSVs in `exports/` plus `catalog/Catalog.csv` from the DB (byte-identical round-trip) |
 | 0. Sortir | Exit the application |
 
 ### Project submenu (option 1)

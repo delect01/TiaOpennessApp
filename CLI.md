@@ -45,6 +45,8 @@ dotnet run -- <command> [arguments...]
 | `--dump-interfaces` | Mostra les interfícies de xarxa d'un projecte |
 | `--gsd-cax-poc` | PoC: exporta un dispositiu GSD a AML i l'importa en un sandbox (via CAx) |
 | `--export-cax-project` | Exporta un projecte sencer a un fitxer CAx/AML (golden) |
+| `--import-db` | Importa els CSV (`imports/` + catàleg) a una base de dades SQLite |
+| `--db-to-csv` | Regenera els CSV (documents + catàleg) des de la base de dades SQLite |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project`, amb el roundtrip
 > (`workDir\golden.aml`) o automàticament des del projecte obert al menú
@@ -426,7 +428,7 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox |
 --generate-project | --roundtrip-test | --diff-topology | --dump-type-id |
 --plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
---dump-hw-items | --gsd-cax-poc | --export-cax-project
+--dump-hw-items | --gsd-cax-poc | --export-cax-project | --import-db | --db-to-csv
 ```
 
 ---
@@ -487,6 +489,59 @@ TiaOpennessApp --export-cax-project <projectPath> <outAml> [logFile]
 
 ---
 
+## 19. `--import-db`
+
+Crea (o sobreescriu) una base de dades **SQLite** a partir dels CSV de documents
+i del catàleg, amb taules normalitzades, claus foranes i vistes. No connecta a
+TIA Portal.
+
+```
+TiaOpennessApp --import-db [dbPath] [importsDir]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `[dbPath]` | Fitxer SQLite de sortida. Per defecte: `<directori del .exe>\tia_topology.db` |
+| `[importsDir]` | Directori amb `Devices.csv`, `Modules.csv`, `Subnets.csv`, `Interfaces.csv`, `ModuleAddresses.csv` i `IoTags.csv`. Per defecte: es busca `imports` pujant des del directori del .exe |
+
+El catàleg es resol a `<pare de importsDir>\catalog\Catalog.csv` o, si no hi és,
+a `<directori del .exe>\catalog\Catalog.csv`.
+
+**Taules**: `catalog`, `devices`, `subnets`, `modules`, `interfaces`,
+`module_addresses`, `io_tags`.
+
+**Vistes**: `vw_device_topology` (dispositius + catàleg + interfícies) i
+`vw_io_mapping` (tags units al rang d'adreces del submòdul, filtrat per I/Q).
+
+**Sortida**: nombre de files per taula i, si n'hi ha, errors. El mateix import
+també és accessible al menú interactiu amb l'opció **4. Import CSVs to SQLite
+database**.
+
+---
+
+## 20. `--db-to-csv`
+
+Operació inversa de `--import-db`: llegeix la base de dades SQLite i regenera els
+6 CSV de documents (a `exports/` per defecte) i `catalog/Catalog.csv`. Els fitxers
+es tornen a escriure amb el mateix format (UTF-8 amb BOM per als documents, sense
+BOM per al catàleg) i les mateixes capçaleres i ordre de columnes.
+
+```
+TiaOpennessApp --db-to-csv [dbPath] [outDocsDir] [catalogCsv]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `[dbPath]` | Fitxer SQLite d'origen. Per defecte: `<directori del .exe>\tia_topology.db` |
+| `[outDocsDir]` | Directori dels 6 CSV. Per defecte: `Export:DocsPath` (`exports`) |
+| `[catalogCsv]` | Catàleg de sortida. Per defecte: `Export:CatalogPath` (`catalog\Catalog.csv`) |
+
+**Sortida**: nombre de files per fitxer i, si n'hi ha, errors. El mateix export
+també és accessible al menú interactiu amb l'opció **5. Export SQLite database to
+CSVs**.
+
+---
+
 ## Valors per defecte (appsettings.json)
 
 Les comandes que accepten `[catalogCsv]` opcional el resolen així:
@@ -534,6 +589,12 @@ TiaOpennessApp.exe --csv-to-xlsx "imports" "imports\project.xlsx"
 
 # Convertir XLSX a CSV
 TiaOpennessApp.exe --xlsx-to-csv "imports\project.xlsx" "imports\generated"
+
+# Generar la base de dades SQLite a partir dels CSV
+TiaOpennessApp.exe --import-db
+
+# Regenerar els CSV a partir de la base de dades SQLite
+TiaOpennessApp.exe --db-to-csv
 ```
 
 > **Nota**: les comandes que obren o generen projectes (`--gen-devices-sandbox`,
