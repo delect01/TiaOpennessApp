@@ -95,19 +95,28 @@ namespace TiaOpennessApp.Services
                         int errorsBefore = result.Errors.Count;
 
                         RunImport(connection, transaction, "catalog",
-                            () => ImportCatalog(connection, transaction, catalogPath!), result.Errors);
+                            () => ImportCatalog(connection, transaction, catalogPath!, result.Warnings), result.Errors);
+
+                        HashSet<string> catalogKeys = LoadStringSet(connection, transaction, "SELECT type_key FROM catalog;");
+
                         RunImport(connection, transaction, "devices",
-                            () => ImportDevices(connection, transaction, Path.Combine(resolvedImportsDir, "Devices.csv")), result.Errors);
+                            () => ImportDevices(connection, transaction, Path.Combine(resolvedImportsDir, "Devices.csv"), catalogKeys, result.Warnings), result.Errors);
+
+                        HashSet<string> deviceNames = LoadStringSet(connection, transaction, "SELECT device_name FROM devices;");
+
                         RunImport(connection, transaction, "subnets",
                             () => ImportSubnets(connection, transaction, Path.Combine(resolvedImportsDir, "Subnets.csv")), result.Errors);
+
+                        HashSet<string> subnetNames = LoadStringSet(connection, transaction, "SELECT name FROM subnets;");
+
                         RunImport(connection, transaction, "modules",
-                            () => ImportModules(connection, transaction, Path.Combine(resolvedImportsDir, "Modules.csv")), result.Errors);
+                            () => ImportModules(connection, transaction, Path.Combine(resolvedImportsDir, "Modules.csv"), deviceNames, catalogKeys, result.Warnings), result.Errors);
                         RunImport(connection, transaction, "interfaces",
-                            () => ImportInterfaces(connection, transaction, Path.Combine(resolvedImportsDir, "Interfaces.csv")), result.Errors);
+                            () => ImportInterfaces(connection, transaction, Path.Combine(resolvedImportsDir, "Interfaces.csv"), deviceNames, subnetNames, result.Warnings), result.Errors);
                         RunImport(connection, transaction, "module_addresses",
-                            () => ImportModuleAddresses(connection, transaction, Path.Combine(resolvedImportsDir, "ModuleAddresses.csv")), result.Errors);
+                            () => ImportModuleAddresses(connection, transaction, Path.Combine(resolvedImportsDir, "ModuleAddresses.csv"), deviceNames, result.Warnings), result.Errors);
                         RunImport(connection, transaction, "io_tags",
-                            () => ImportIoTags(connection, transaction, Path.Combine(resolvedImportsDir, "IoTags.csv")), result.Errors);
+                            () => ImportIoTags(connection, transaction, Path.Combine(resolvedImportsDir, "IoTags.csv"), deviceNames, result.Warnings), result.Errors);
 
                         if (result.Errors.Count > errorsBefore)
                         {
@@ -217,7 +226,9 @@ CREATE TABLE catalog (
 CREATE TABLE devices (
     device_name TEXT PRIMARY KEY,
     group_name  TEXT,
-    type_key    TEXT REFERENCES catalog(type_key),
+    type_key    TEXT NOT NULL
+                CHECK (length(trim(type_key)) > 0)
+                REFERENCES catalog(type_key) ON UPDATE CASCADE ON DELETE RESTRICT,
     firmware    TEXT,
     comment     TEXT
 );
@@ -229,19 +240,24 @@ CREATE TABLE subnets (
 
 CREATE TABLE modules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    device      TEXT NOT NULL REFERENCES devices(device_name),
+    device      TEXT NOT NULL
+                REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     module_name TEXT NOT NULL,
     slot        INTEGER,
-    type_key    TEXT REFERENCES catalog(type_key),
+    type_key    TEXT NOT NULL
+                CHECK (length(trim(type_key)) > 0)
+                REFERENCES catalog(type_key) ON UPDATE CASCADE ON DELETE RESTRICT,
     comment     TEXT,
     UNIQUE(device, module_name)
 );
 
 CREATE TABLE interfaces (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    device         TEXT NOT NULL REFERENCES devices(device_name),
+    device         TEXT NOT NULL
+                   REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     interface_item TEXT NOT NULL,
-    subnet         TEXT REFERENCES subnets(name),
+    subnet         TEXT
+                   REFERENCES subnets(name) ON UPDATE CASCADE ON DELETE RESTRICT,
     ip_address     TEXT,
     subnet_mask    TEXT,
     pn_device_name TEXT,
@@ -251,7 +267,8 @@ CREATE TABLE interfaces (
 
 CREATE TABLE module_addresses (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    device          TEXT NOT NULL REFERENCES devices(device_name),
+    device          TEXT NOT NULL
+                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     module_name     TEXT,
     sub_module_name TEXT,
     type_identifier TEXT,
@@ -262,8 +279,10 @@ CREATE TABLE module_addresses (
 
 CREATE TABLE io_tags (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    device          TEXT NOT NULL REFERENCES devices(device_name),
-    io_device       TEXT REFERENCES devices(device_name),
+    device          TEXT NOT NULL
+                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
+    io_device       TEXT
+                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
     module_name     TEXT,
     sub_module_name TEXT,
     tag_table       TEXT,
@@ -272,6 +291,139 @@ CREATE TABLE io_tags (
     address         TEXT,
     comment         TEXT
 );
+
+CREATE TRIGGER trg_devices_type_key_insert
+BEFORE INSERT ON devices
+BEGIN
+    SELECT RAISE(ABORT, 'devices.type_key is required and must exist in catalog')
+    WHERE NEW.type_key IS NULL
+       OR length(trim(NEW.type_key)) = 0
+       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
+END;
+
+CREATE TRIGGER trg_devices_type_key_update
+BEFORE UPDATE OF type_key ON devices
+BEGIN
+    SELECT RAISE(ABORT, 'devices.type_key is required and must exist in catalog')
+    WHERE NEW.type_key IS NULL
+       OR length(trim(NEW.type_key)) = 0
+       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
+END;
+
+CREATE TRIGGER trg_devices_delete
+BEFORE DELETE ON devices
+BEGIN
+    SELECT RAISE(ABORT, 'device is referenced by modules, interfaces, module_addresses or io_tags')
+    WHERE EXISTS (SELECT 1 FROM modules WHERE device = OLD.device_name)
+       OR EXISTS (SELECT 1 FROM interfaces WHERE device = OLD.device_name)
+       OR EXISTS (SELECT 1 FROM module_addresses WHERE device = OLD.device_name)
+       OR EXISTS (SELECT 1 FROM io_tags WHERE device = OLD.device_name OR io_device = OLD.device_name);
+END;
+
+CREATE TRIGGER trg_modules_refs_insert
+BEFORE INSERT ON modules
+BEGIN
+    SELECT RAISE(ABORT, 'modules.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'modules.type_key is required and must exist in catalog')
+    WHERE NEW.type_key IS NULL
+       OR length(trim(NEW.type_key)) = 0
+       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
+END;
+
+CREATE TRIGGER trg_modules_refs_update
+BEFORE UPDATE OF device, type_key ON modules
+BEGIN
+    SELECT RAISE(ABORT, 'modules.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'modules.type_key is required and must exist in catalog')
+    WHERE NEW.type_key IS NULL
+       OR length(trim(NEW.type_key)) = 0
+       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
+END;
+
+CREATE TRIGGER trg_interfaces_refs_insert
+BEFORE INSERT ON interfaces
+BEGIN
+    SELECT RAISE(ABORT, 'interfaces.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'interfaces.subnet must exist in subnets')
+    WHERE NEW.subnet IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM subnets WHERE name = NEW.subnet);
+END;
+
+CREATE TRIGGER trg_interfaces_refs_update
+BEFORE UPDATE OF device, subnet ON interfaces
+BEGIN
+    SELECT RAISE(ABORT, 'interfaces.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'interfaces.subnet must exist in subnets')
+    WHERE NEW.subnet IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM subnets WHERE name = NEW.subnet);
+END;
+
+CREATE TRIGGER trg_module_addresses_refs_insert
+BEFORE INSERT ON module_addresses
+BEGIN
+    SELECT RAISE(ABORT, 'module_addresses.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+END;
+
+CREATE TRIGGER trg_module_addresses_refs_update
+BEFORE UPDATE OF device ON module_addresses
+BEGIN
+    SELECT RAISE(ABORT, 'module_addresses.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+END;
+
+CREATE TRIGGER trg_io_tags_refs_insert
+BEFORE INSERT ON io_tags
+BEGIN
+    SELECT RAISE(ABORT, 'io_tags.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'io_tags.io_device must exist in devices')
+    WHERE NEW.io_device IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.io_device);
+END;
+
+CREATE TRIGGER trg_io_tags_refs_update
+BEFORE UPDATE OF device, io_device ON io_tags
+BEGIN
+    SELECT RAISE(ABORT, 'io_tags.device must exist in devices')
+    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
+
+    SELECT RAISE(ABORT, 'io_tags.io_device must exist in devices')
+    WHERE NEW.io_device IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.io_device);
+END;
+
+CREATE TRIGGER trg_catalog_delete
+BEFORE DELETE ON catalog
+BEGIN
+    SELECT RAISE(ABORT, 'catalog entry is referenced by devices or modules')
+    WHERE EXISTS (SELECT 1 FROM devices WHERE type_key = OLD.type_key)
+       OR EXISTS (SELECT 1 FROM modules WHERE type_key = OLD.type_key);
+END;
+
+CREATE TRIGGER trg_catalog_type_key_update
+AFTER UPDATE OF type_key ON catalog
+WHEN OLD.type_key <> NEW.type_key
+BEGIN
+    UPDATE devices SET type_key = NEW.type_key WHERE type_key = OLD.type_key;
+    UPDATE modules SET type_key = NEW.type_key WHERE type_key = OLD.type_key;
+END;
+
+CREATE TRIGGER trg_subnets_delete
+BEFORE DELETE ON subnets
+BEGIN
+    SELECT RAISE(ABORT, 'subnet is referenced by interfaces')
+    WHERE EXISTS (SELECT 1 FROM interfaces WHERE subnet = OLD.name);
+END;
 
 CREATE INDEX idx_modules_device ON modules(device);
 CREATE INDEX idx_modules_type_key ON modules(type_key);
@@ -340,8 +492,32 @@ LEFT JOIN module_addresses a
             }
         }
 
-        private static void ImportCatalog(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static HashSet<string> LoadStringSet(SqliteConnection connection, SqliteTransaction transaction, string sql)
         {
+            var values = new HashSet<string>(StringComparer.Ordinal);
+
+            using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = sql;
+
+                using (var reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        if (!reader.IsDBNull(0))
+                            values.Add(reader.GetString(0));
+                    }
+                }
+            }
+
+            return values;
+        }
+
+        private static void ImportCatalog(SqliteConnection connection, SqliteTransaction transaction, string path, List<string> warnings)
+        {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT OR REPLACE INTO catalog (type_key, mlfb, tia_version, description, role, identifier) VALUES (@type_key, @mlfb, @tia_version, @description, @role, @identifier);"))
             {
@@ -351,7 +527,10 @@ LEFT JOIN module_addresses a
                 {
                     string? typeKey = row.Get("TypeKey");
                     if (typeKey == null)
+                    {
+                        warnings.Add($"{file} row {row.Number}: missing 'TypeKey'; row skipped.");
                         continue;
+                    }
 
                     SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@mlfb", row.Get("MLFB"));
@@ -364,8 +543,10 @@ LEFT JOIN module_addresses a
             }
         }
 
-        private static void ImportDevices(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static void ImportDevices(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> catalogKeys, List<string> warnings)
         {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT OR REPLACE INTO devices (device_name, group_name, type_key, firmware, comment) VALUES (@device_name, @group_name, @type_key, @firmware, @comment);"))
             {
@@ -373,13 +554,25 @@ LEFT JOIN module_addresses a
 
                 foreach (Row row in ReadRows(path))
                 {
-                    string? deviceName = row.Get("DeviceName");
-                    if (deviceName == null)
+                    if (!TryGetRequired(row, "DeviceName", file, warnings, out string deviceName))
                         continue;
+
+                    string? typeKey = row.Get("TypeKey");
+                    if (typeKey == null)
+                    {
+                        warnings.Add($"{file} row {row.Number}: missing 'TypeKey' (must exist in {CatalogFileName}); row skipped.");
+                        continue;
+                    }
+
+                    if (!catalogKeys.Contains(typeKey))
+                    {
+                        warnings.Add($"{file} row {row.Number}: TypeKey '{typeKey}' not found in {CatalogFileName}; row skipped.");
+                        continue;
+                    }
 
                     SetParameter(command, "@device_name", deviceName);
                     SetParameter(command, "@group_name", row.Get("Group"));
-                    SetParameter(command, "@type_key", row.Get("TypeKey"));
+                    SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@firmware", row.Get("Firmware"));
                     SetParameter(command, "@comment", row.Get("Comment"));
                     command.ExecuteNonQuery();
@@ -407,8 +600,10 @@ LEFT JOIN module_addresses a
             }
         }
 
-        private static void ImportModules(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static void ImportModules(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> deviceNames, ISet<string> catalogKeys, List<string> warnings)
         {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT INTO modules (device, module_name, slot, type_key, comment) VALUES (@device, @module_name, @slot, @type_key, @comment);"))
             {
@@ -416,23 +611,44 @@ LEFT JOIN module_addresses a
 
                 foreach (Row row in ReadRows(path))
                 {
-                    string? device = row.Get("Device");
-                    string? moduleName = row.Get("ModuleName");
-                    if (device == null || moduleName == null)
+                    if (!TryGetRequired(row, "Device", file, warnings, out string device))
                         continue;
+                    if (!TryGetRequired(row, "ModuleName", file, warnings, out string moduleName))
+                        continue;
+
+                    if (!deviceNames.Contains(device))
+                    {
+                        warnings.Add($"{file} row {row.Number}: device '{device}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
+
+                    string? typeKey = row.Get("TypeKey");
+                    if (typeKey == null)
+                    {
+                        warnings.Add($"{file} row {row.Number}: missing 'TypeKey' (must exist in {CatalogFileName}); row skipped.");
+                        continue;
+                    }
+
+                    if (!catalogKeys.Contains(typeKey))
+                    {
+                        warnings.Add($"{file} row {row.Number}: TypeKey '{typeKey}' not found in {CatalogFileName}; row skipped.");
+                        continue;
+                    }
 
                     SetParameter(command, "@device", device);
                     SetParameter(command, "@module_name", moduleName);
                     SetParameter(command, "@slot", row.GetInt("Slot"));
-                    SetParameter(command, "@type_key", row.Get("TypeKey"));
+                    SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@comment", row.Get("Comment"));
                     command.ExecuteNonQuery();
                 }
             }
         }
 
-        private static void ImportInterfaces(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static void ImportInterfaces(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> deviceNames, ISet<string> subnetNames, List<string> warnings)
         {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT INTO interfaces (device, interface_item, subnet, ip_address, subnet_mask, pn_device_name, master_io_system) VALUES (@device, @interface_item, @subnet, @ip_address, @subnet_mask, @pn_device_name, @master_io_system);"))
             {
@@ -440,14 +656,27 @@ LEFT JOIN module_addresses a
 
                 foreach (Row row in ReadRows(path))
                 {
-                    string? device = row.Get("Device");
-                    string? interfaceItem = row.Get("InterfaceItem");
-                    if (device == null || interfaceItem == null)
+                    if (!TryGetRequired(row, "Device", file, warnings, out string device))
                         continue;
+                    if (!TryGetRequired(row, "InterfaceItem", file, warnings, out string interfaceItem))
+                        continue;
+
+                    if (!deviceNames.Contains(device))
+                    {
+                        warnings.Add($"{file} row {row.Number}: device '{device}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
+
+                    string? subnet = row.Get("Subnet");
+                    if (subnet != null && !subnetNames.Contains(subnet))
+                    {
+                        warnings.Add($"{file} row {row.Number}: subnet '{subnet}' not found in Subnets.csv; row skipped.");
+                        continue;
+                    }
 
                     SetParameter(command, "@device", device);
                     SetParameter(command, "@interface_item", interfaceItem);
-                    SetParameter(command, "@subnet", row.Get("Subnet"));
+                    SetParameter(command, "@subnet", subnet);
                     SetParameter(command, "@ip_address", row.Get("IPAddress"));
                     SetParameter(command, "@subnet_mask", row.Get("SubnetMask"));
                     SetParameter(command, "@pn_device_name", row.Get("PNDeviceName"));
@@ -457,8 +686,10 @@ LEFT JOIN module_addresses a
             }
         }
 
-        private static void ImportModuleAddresses(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static void ImportModuleAddresses(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> deviceNames, List<string> warnings)
         {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT INTO module_addresses (device, module_name, sub_module_name, type_identifier, io_type, start_address, length) VALUES (@device, @module_name, @sub_module_name, @type_identifier, @io_type, @start_address, @length);"))
             {
@@ -466,9 +697,14 @@ LEFT JOIN module_addresses a
 
                 foreach (Row row in ReadRows(path))
                 {
-                    string? device = row.Get("Device");
-                    if (device == null)
+                    if (!TryGetRequired(row, "Device", file, warnings, out string device))
                         continue;
+
+                    if (!deviceNames.Contains(device))
+                    {
+                        warnings.Add($"{file} row {row.Number}: device '{device}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
 
                     SetParameter(command, "@device", device);
                     SetParameter(command, "@module_name", row.Get("ModuleName"));
@@ -482,8 +718,10 @@ LEFT JOIN module_addresses a
             }
         }
 
-        private static void ImportIoTags(SqliteConnection connection, SqliteTransaction transaction, string path)
+        private static void ImportIoTags(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> deviceNames, List<string> warnings)
         {
+            string file = Path.GetFileName(path);
+
             using (var command = CreateCommand(connection, transaction,
                 "INSERT INTO io_tags (device, io_device, module_name, sub_module_name, tag_table, name, type, address, comment) VALUES (@device, @io_device, @module_name, @sub_module_name, @tag_table, @name, @type, @address, @comment);"))
             {
@@ -491,12 +729,24 @@ LEFT JOIN module_addresses a
 
                 foreach (Row row in ReadRows(path))
                 {
-                    string? device = row.Get("Device");
-                    if (device == null)
+                    if (!TryGetRequired(row, "Device", file, warnings, out string device))
                         continue;
 
+                    if (!deviceNames.Contains(device))
+                    {
+                        warnings.Add($"{file} row {row.Number}: device '{device}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
+
+                    string? ioDevice = row.Get("IoDevice");
+                    if (ioDevice != null && !deviceNames.Contains(ioDevice))
+                    {
+                        warnings.Add($"{file} row {row.Number}: io_device '{ioDevice}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
+
                     SetParameter(command, "@device", device);
-                    SetParameter(command, "@io_device", row.Get("IoDevice"));
+                    SetParameter(command, "@io_device", ioDevice);
                     SetParameter(command, "@module_name", row.Get("ModuleName"));
                     SetParameter(command, "@sub_module_name", row.Get("SubModuleName"));
                     SetParameter(command, "@tag_table", row.Get("TagTable"));
@@ -507,6 +757,20 @@ LEFT JOIN module_addresses a
                     command.ExecuteNonQuery();
                 }
             }
+        }
+
+        private static bool TryGetRequired(Row row, string column, string file, List<string> warnings, out string value)
+        {
+            string? raw = row.Get(column);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                warnings.Add($"{file} row {row.Number}: missing '{column}'; row skipped.");
+                value = string.Empty;
+                return false;
+            }
+
+            value = raw!;
+            return true;
         }
 
         private static long CountRows(SqliteConnection connection, string table)
@@ -580,7 +844,7 @@ LEFT JOIN module_addresses a
                         values[column.Key] = value;
                     }
 
-                    rows.Add(new Row(values));
+                    rows.Add(new Row(values, csv.Parser.Row));
                 }
             }
 
@@ -602,10 +866,13 @@ LEFT JOIN module_addresses a
         {
             private readonly IDictionary<string, string?> _values;
 
-            public Row(IDictionary<string, string?> values)
+            public Row(IDictionary<string, string?> values, int number)
             {
                 _values = values;
+                Number = number;
             }
+
+            public int Number { get; }
 
             public string? Get(string name)
             {

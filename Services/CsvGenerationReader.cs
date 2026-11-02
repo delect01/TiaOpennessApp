@@ -17,8 +17,9 @@ namespace TiaOpennessApp.Services
         private readonly string _interfacesPath;
         private readonly string _ioTagsPath;
         private readonly string _moduleAddressesPath;
+        private readonly string? _blocksPath;
 
-        public CsvGenerationReader(string devicesPath, string modulesPath, string subnetsPath, string interfacesPath, string ioTagsPath, string moduleAddressesPath)
+        public CsvGenerationReader(string devicesPath, string modulesPath, string subnetsPath, string interfacesPath, string ioTagsPath, string moduleAddressesPath, string? blocksPath = null)
         {
             _devicesPath = devicesPath;
             _modulesPath = modulesPath;
@@ -26,6 +27,7 @@ namespace TiaOpennessApp.Services
             _interfacesPath = interfacesPath;
             _ioTagsPath = ioTagsPath;
             _moduleAddressesPath = moduleAddressesPath;
+            _blocksPath = blocksPath;
         }
 
         public GenerationParseResult Read()
@@ -38,6 +40,7 @@ namespace TiaOpennessApp.Services
             result.Document.Interfaces = ReadInterfaces(_interfacesPath, result.Issues);
             result.Document.IoTags = ReadIoTags(_ioTagsPath, result.Issues);
             result.Document.ModuleAddresses = ReadModuleAddresses(_moduleAddressesPath, result.Issues);
+            result.Document.Blocks = ReadBlocks(_blocksPath, result.Issues);
 
             return result;
         }
@@ -175,6 +178,40 @@ namespace TiaOpennessApp.Services
                 {
                     int row = csv.Parser.Row;
                     list.Add(GenerationRowParsing.ParseModuleAddressRow(header, SafeGetter(csv), source, row, issues.Add));
+                }
+            }
+            return list;
+        }
+
+        private static List<BlockSpec> ReadBlocks(string? path, List<ParseIssue> issues)
+        {
+            var list = new List<BlockSpec>();
+            if (string.IsNullOrWhiteSpace(path))
+                return list;
+
+            if (!File.Exists(path))
+            {
+                issues.Add(new ParseIssue
+                {
+                    Source = Path.GetFileName(path),
+                    Level = ParseIssueLevel.Warning,
+                    Message = "Fitxer no trobat; no es generaran blocs de programa.",
+                });
+                return list;
+            }
+
+            using (var csv = Open(path!, issues))
+            {
+                if (csv == null) return list;
+                string source = Path.GetFileName(path);
+                var required = new[] { GenerationColumns.Device, GenerationColumns.Name, GenerationColumns.SourceFile };
+                var header = StartSection(csv, source, required, issues);
+                if (header == null) return list;
+
+                while (csv.Read())
+                {
+                    int row = csv.Parser.Row;
+                    list.Add(GenerationRowParsing.ParseBlockRow(header, SafeGetter(csv), source, row, issues.Add));
                 }
             }
             return list;

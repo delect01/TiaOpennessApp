@@ -13,6 +13,8 @@ namespace TiaOpennessApp.Models.Database
 
         public List<DbTableCount> TableCounts { get; } = new List<DbTableCount>();
 
+        public List<string> Warnings { get; } = new List<string>();
+
         public List<string> Errors { get; } = new List<string>();
 
         public TimeSpan Elapsed { get; set; }

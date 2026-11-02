@@ -33,6 +33,7 @@ namespace TiaOpennessApp.Services
                 result.Document.Interfaces = ReadInterfaces(workbook, result.Issues);
                 result.Document.IoTags = ReadIoTags(workbook, result.Issues);
                 result.Document.ModuleAddresses = ReadModuleAddresses(workbook, result.Issues);
+                result.Document.Blocks = ReadBlocks(workbook, result.Issues);
             }
 
             return result;
@@ -158,6 +159,40 @@ namespace TiaOpennessApp.Services
                 list.Add(GenerationRowParsing.ParseModuleAddressRow(header, Getter(ws, row), source, row, issues.Add));
             }
             return list;
+        }
+
+        private static List<BlockSpec> ReadBlocks(XLWorkbook workbook, List<ParseIssue> issues)
+        {
+            var list = new List<BlockSpec>();
+            var ws = GetOptionalWorksheet(workbook, GenerationColumns.Blocks, issues);
+            if (ws == null) return list;
+
+            string source = GenerationColumns.Blocks;
+            var required = new[] { GenerationColumns.Device, GenerationColumns.Name, GenerationColumns.SourceFile };
+            var header = GenerationRowParsing.ValidateHeader(ReadHeader(ws), source, required, issues.Add);
+            if (header == null) return list;
+
+            int lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+            for (int row = 2; row <= lastRow; row++)
+            {
+                if (RowIsEmpty(ws, row, header.Length))
+                    continue;
+                list.Add(GenerationRowParsing.ParseBlockRow(header, Getter(ws, row), source, row, issues.Add));
+            }
+            return list;
+        }
+
+        private static IXLWorksheet? GetOptionalWorksheet(XLWorkbook workbook, string name, List<ParseIssue> issues)
+        {
+            if (workbook.Worksheets.TryGetWorksheet(name, out var worksheet))
+                return worksheet;
+            issues.Add(new ParseIssue
+            {
+                Source = name,
+                Level = ParseIssueLevel.Warning,
+                Message = "Full de càlcul no trobat; no es generaran blocs de programa.",
+            });
+            return null;
         }
 
         private static IXLWorksheet? GetWorksheet(XLWorkbook workbook, string name, List<ParseIssue> issues)

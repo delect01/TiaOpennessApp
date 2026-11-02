@@ -10,5 +10,6 @@ namespace TiaOpennessApp.Models.Generation
         public List<InterfaceSpec> Interfaces { get; set; } = new List<InterfaceSpec>();
         public List<IoTagSpec> IoTags { get; set; } = new List<IoTagSpec>();
         public List<ModuleAddressSpec> ModuleAddresses { get; set; } = new List<ModuleAddressSpec>();
+        public List<BlockSpec> Blocks { get; set; } = new List<BlockSpec>();
     }
 }

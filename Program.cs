@@ -6,14 +6,18 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Principal;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Win32;
 using Siemens.Engineering;
 using Siemens.Engineering.Cax;
+using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.HW.Features;
+using Siemens.Engineering.SW;
+using Siemens.Engineering.SW.Blocks;
 using TiaOpennessApp.Models;
 using TiaOpennessApp.Models.Database;
 using TiaOpennessApp.Models.Generation;
@@ -135,6 +139,7 @@ namespace TiaOpennessApp
                     Console.WriteLine("│  3. Generate project from documents  │");
                     Console.WriteLine("│  4. Import CSVs to SQLite database   │");
                     Console.WriteLine("│  5. Export SQLite database to CSVs   │");
+                    Console.WriteLine("│  6. Generate blocks into template    │");
                     Console.WriteLine("│  0. Exit                             │");
                     Console.WriteLine("└──────────────────────────────────────┘");
                     Console.Write("Select: ");
@@ -161,12 +166,15 @@ namespace TiaOpennessApp
                         case "5":
                             ExportDatabaseFlow();
                             break;
+                        case "6":
+                            GenerateBlocksFromDocumentsFlow(connection);
+                            break;
                         case "0":
                             Console.WriteLine("Exiting...");
                             exitRequested = true;
                             break;
                         default:
-                            Console.WriteLine("Invalid option. Select 1, 2, 3, 4, 5 or 0: ");
+                            Console.WriteLine("Invalid option. Select 1, 2, 3, 4, 5, 6 or 0: ");
                             break;
                     }
                 }
@@ -282,7 +290,8 @@ namespace TiaOpennessApp
                 Console.WriteLine($"Template saved: {outPath} " +
                                   $"(devices={csvResult.Document.Devices.Count}, modules={csvResult.Document.Modules.Count}, " +
                                   $"subnets={csvResult.Document.Subnets.Count}, interfaces={csvResult.Document.Interfaces.Count}, " +
-                                  $"iotags={csvResult.Document.IoTags.Count}, moduleAddresses={csvResult.Document.ModuleAddresses.Count})");
+                                  $"iotags={csvResult.Document.IoTags.Count}, moduleAddresses={csvResult.Document.ModuleAddresses.Count}, " +
+                                  $"blocks={csvResult.Document.Blocks.Count})");
                 return;
             }
 
@@ -340,7 +349,8 @@ namespace TiaOpennessApp
                 Console.WriteLine($"CSVs saved to: {docsDir} " +
                                   $"(devices={xlsxResult.Document.Devices.Count}, modules={xlsxResult.Document.Modules.Count}, " +
                                   $"subnets={xlsxResult.Document.Subnets.Count}, interfaces={xlsxResult.Document.Interfaces.Count}, " +
-                                  $"iotags={xlsxResult.Document.IoTags.Count}, moduleAddresses={xlsxResult.Document.ModuleAddresses.Count})");
+                                  $"iotags={xlsxResult.Document.IoTags.Count}, moduleAddresses={xlsxResult.Document.ModuleAddresses.Count}, " +
+                                  $"blocks={xlsxResult.Document.Blocks.Count})");
                 return;
             }
 
@@ -402,7 +412,7 @@ namespace TiaOpennessApp
                 }
 
                 var catalog = CatalogService.Load(catalogPath);
-                var validator = new ValidationService(catalog);
+                var validator = new ValidationService(catalog, docsDir);
                 ValidationReport report = validator.Validate(parseResult.Document);
                 if (projectFolder != null)
                     validator.ValidateDestinationFolder(projectFolder);
@@ -447,7 +457,7 @@ namespace TiaOpennessApp
                 }
 
                 var catalog = CatalogService.Load(catalogPath);
-                var validator = new ValidationService(catalog);
+                var validator = new ValidationService(catalog, docsDir);
                 ValidationReport validation = validator.Validate(parseResult.Document);
 
                 foreach (var issue in validation.Issues)
@@ -657,6 +667,8 @@ namespace TiaOpennessApp
                 List<NetworkDeviceInfo> exportDevices;
                 List<IoTagSpec>? exportTags = null;
                 List<ModuleAddressSpec>? exportModuleAddresses = null;
+                List<BlockSpec>? exportBlocks = null;
+                BlockDocsExportReport? blockReport = null;
                 if (sourcePath.EndsWith(".json", StringComparison.OrdinalIgnoreCase) && File.Exists(sourcePath))
                 {
                     exportDevices = JsonSerializer.Deserialize<List<NetworkDeviceInfo>>(File.ReadAllText(sourcePath), JsonOptions)
@@ -673,12 +685,16 @@ namespace TiaOpennessApp
                     exportDevices = new DevicesAndNetworksService(docsConnection.Project).ExportNetworkDevices();
                     exportTags = new TagsExportService(docsConnection.Project).ExportIoTags();
                     exportModuleAddresses = new TagsExportService(docsConnection.Project).ExportModuleAddresses();
+                    Console.WriteLine("Extraient blocs de programa...");
+                    blockReport = new BlocksExportService(docsConnection.Project).ExportDocs(docsDir);
+                    exportBlocks = blockReport.Blocks;
                 }
 
                 var catalog = CatalogService.Load(catalogPath);
                 Console.WriteLine($"Catàleg: {catalog.Count} entrada(s)");
 
-                var docsReport = new DocsExportService(docsDir, catalog).Export(exportDevices, exportTags, exportModuleAddresses);
+                var docsReport = new DocsExportService(docsDir, catalog).Export(
+                    exportDevices, exportTags, exportModuleAddresses, exportBlocks);
                 Console.WriteLine();
                 Console.WriteLine($"Docs generats a: {docsReport.OutputDir}");
                 Console.WriteLine($"  Devices:    {docsReport.Devices}");
@@ -687,6 +703,13 @@ namespace TiaOpennessApp
                 Console.WriteLine($"  Interfaces: {docsReport.Interfaces}");
                 Console.WriteLine($"  IoTags:     {docsReport.Tags}");
                 Console.WriteLine($"  HwAddr:     {docsReport.ModuleAddresses}");
+                Console.WriteLine($"  Blocks:     {docsReport.Blocks}");
+
+                if (blockReport != null)
+                {
+                    foreach (string blockError in blockReport.Errors)
+                        Console.WriteLine($"  BLOCK WARN: {blockError}");
+                }
                 return;
             }
 
@@ -739,6 +762,89 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--export-blocks")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --export-blocks <projectPath> <outDocsDir> [deviceFilter]");
+                    return;
+                }
+
+                string outDocsDir = args[2];
+                string? deviceFilter = args.Length >= 4 ? args[3] : null;
+
+                using var exportBlocksConnection = new TiaConnection();
+                exportBlocksConnection.ConnectHeadless();
+                exportBlocksConnection.OpenProject(args[1]);
+                Console.WriteLine($"Project: {exportBlocksConnection.Project.Name}");
+                BlockDocsExportReport blockReport =
+                    new BlocksExportService(exportBlocksConnection.Project).ExportDocs(outDocsDir, deviceFilter);
+
+                new CsvGenerationWriter(outDocsDir).WriteBlocks(blockReport.Blocks);
+                Console.WriteLine($"Blocks exported: {blockReport.Exported}, skipped: {blockReport.Skipped}, " +
+                                  $"errors: {blockReport.Errors.Count}");
+                foreach (string error in blockReport.Errors)
+                    Console.WriteLine($"  BLOCK WARN: {error}");
+                Console.WriteLine($"Blocks manifest: {Path.Combine(outDocsDir, "Blocks.csv")}");
+                return;
+            }
+
+            if (command == "--generate-blocks")
+            {
+                if (args.Length < 5)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --generate-blocks <templateProject> <docsDir> <targetDir> <projectName> [--override] [--no-compile]");
+                    return;
+                }
+
+                bool overrideExisting = args.Skip(5)
+                    .Any(arg => arg.Equals("--override", StringComparison.OrdinalIgnoreCase));
+                bool noCompile = args.Skip(5)
+                    .Any(arg => arg.Equals("--no-compile", StringComparison.OrdinalIgnoreCase));
+
+                using var generateBlocksConnection = new TiaConnection();
+                RunBlocksGeneration(
+                    generateBlocksConnection,
+                    args[1],
+                    args[2],
+                    args[3],
+                    args[4],
+                    overrideExisting,
+                    !noCompile);
+                return;
+            }
+
+            if (command == "--dump-blocks")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --dump-blocks <projectPath> [deviceFilter]");
+                    return;
+                }
+
+                using var dumpBlocksConnection = new TiaConnection();
+                dumpBlocksConnection.ConnectHeadless();
+                dumpBlocksConnection.OpenProject(args[1]);
+                string? blockDeviceFilter = args.Length >= 3 ? args[2] : null;
+                Console.WriteLine($"Project: {dumpBlocksConnection.Project.Name}");
+                Console.WriteLine("=== PROGRAM BLOCKS DIAGNOSTICS ===");
+                new BlocksExportService(dumpBlocksConnection.Project).Dump(blockDeviceFilter);
+                return;
+            }
+
+            if (command == "--blocks-poc")
+            {
+                if (args.Length < 3)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --blocks-poc <projectPath> <outDir> [blockName] [deviceFilter]");
+                    return;
+                }
+
+                using var blocksPocConnection = new TiaConnection();
+                RunBlocksPoc(blocksPocConnection, args);
+                return;
+            }
+
             if (command == "--dump-hw-items")
             {
                 if (args.Length < 2)
@@ -780,10 +886,13 @@ namespace TiaOpennessApp
                 Console.WriteLine($"Database file:     {dbResult.DbPath}");
                 foreach (DbTableCount count in dbResult.TableCounts)
                     Console.WriteLine($"  {count.TableName,-20} {count.Count,8}");
+                foreach (string warning in dbResult.Warnings)
+                    Console.WriteLine($"  WARN: {warning}");
                 foreach (string error in dbResult.Errors)
                     Console.WriteLine($"  ERROR: {error}");
                 Console.WriteLine(dbResult.Success
-                    ? $"Import completed in {dbResult.Elapsed.TotalSeconds:0.00}s."
+                    ? $"Import completed in {dbResult.Elapsed.TotalSeconds:0.00}s." +
+                      (dbResult.Warnings.Count > 0 ? $" {dbResult.Warnings.Count} row(s) skipped." : string.Empty)
                     : $"Import finished with {dbResult.Errors.Count} error(s) in {dbResult.Elapsed.TotalSeconds:0.00}s.");
                 return;
             }
@@ -819,7 +928,8 @@ namespace TiaOpennessApp
                               "--xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox | " +
                               "--generate-project | --roundtrip-test | --diff-topology | --dump-type-id | " +
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
-                              "--dump-hw-items | --gsd-cax-poc | --export-cax-project | --import-db | --db-to-csv");
+                              "--export-blocks | --generate-blocks | --dump-blocks | --blocks-poc | --dump-hw-items | --gsd-cax-poc | " +
+                              "--export-cax-project | --import-db | --db-to-csv");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir)
@@ -831,7 +941,8 @@ namespace TiaOpennessApp
                 GetPath("Subnets.csv"),
                 GetPath("Interfaces.csv"),
                 GetPath("IoTags.csv"),
-                GetPath("ModuleAddresses.csv"));
+                GetPath("ModuleAddresses.csv"),
+                GetPath("Blocks.csv"));
             return reader.Read();
         }
 
@@ -932,6 +1043,15 @@ namespace TiaOpennessApp
                     Console.WriteLine($"  {count.TableName,-20} {count.Count,8}");
             }
 
+            if (result.Warnings.Count > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"\nSkipped rows ({result.Warnings.Count}):");
+                Console.ResetColor();
+                foreach (string warning in result.Warnings)
+                    Console.WriteLine($"  WARN: {warning}");
+            }
+
             foreach (string error in result.Errors)
                 Console.WriteLine($"  ERROR: {error}");
         }
@@ -984,6 +1104,48 @@ namespace TiaOpennessApp
 
             foreach (string error in result.Errors)
                 Console.WriteLine($"  ERROR: {error}");
+        }
+
+        private static void GenerateBlocksFromDocumentsFlow(TiaConnection connection)
+        {
+            Console.WriteLine("\n═══ GENERATE BLOCKS INTO TEMPLATE CLONE ═══");
+
+            string docsDir = ResolveDocsDirectory();
+            if (!Directory.Exists(docsDir))
+            {
+                Console.WriteLine($"Abortat: no existeix el directori de documents: {docsDir}");
+                return;
+            }
+
+            string templatePath = ReadAndRememberValue(
+                "Template project path (.ap21)",
+                "Import:TemplateProjectPath");
+            if (!File.Exists(templatePath))
+            {
+                Console.WriteLine($"Abortat: no existeix el projecte plantilla: {templatePath}");
+                return;
+            }
+
+            string targetDirectory = ReadAndRememberValue(
+                "Destination directory",
+                "TiaPortal:NewProjectPath");
+            string projectName = ReadAndRememberValue(
+                "Project name",
+                "TiaPortal:NewProjectName");
+
+            Console.Write("Override existing blocks in the same group? (y/N): ");
+            string? answer = Console.ReadLine()?.Trim();
+            bool overrideExisting = answer != null &&
+                answer.Equals("y", StringComparison.OrdinalIgnoreCase);
+
+            RunBlocksGeneration(
+                connection,
+                templatePath,
+                docsDir,
+                targetDirectory,
+                projectName,
+                overrideExisting,
+                compile: true);
         }
 
         private static void GenerateProjectFromDocumentsFlow(TiaConnection connection)
@@ -1134,7 +1296,7 @@ namespace TiaOpennessApp
             }
 
             var catalog = CatalogService.Load(catalogPath);
-            var validator = new ValidationService(catalog);
+            var validator = new ValidationService(catalog, docsDir);
             ValidationReport validation = validator.Validate(parseResult.Document);
 
             Console.WriteLine("\n═══ VALIDATION ═══");
@@ -1889,6 +2051,596 @@ namespace TiaOpennessApp
             catch { }
         }
 
+        private static void RunBlocksGeneration(
+            TiaConnection connection,
+            string templatePath,
+            string docsDir,
+            string targetDirectory,
+            string projectName,
+            bool overrideExisting,
+            bool compile)
+        {
+            Console.WriteLine("═══ GENERATE BLOCKS INTO TEMPLATE CLONE ═══");
+            Console.WriteLine($"Template:      {templatePath}");
+            Console.WriteLine($"Docs:          {docsDir}");
+            Console.WriteLine($"Target parent: {targetDirectory}");
+            Console.WriteLine($"Project name:  {projectName}");
+            Console.WriteLine($"Override:      {overrideExisting}");
+            Console.WriteLine($"Compile:       {compile}");
+
+            GenerationParseResult parseResult = ReadCsvDocs(docsDir);
+            PrintIssues(parseResult.Issues);
+            if (parseResult.HasErrors)
+            {
+                Console.WriteLine("Abortat: el document té errors de parseig.");
+                return;
+            }
+
+            if (parseResult.Document.Blocks.Count == 0)
+            {
+                Console.WriteLine("Abortat: Blocks.csv no conté cap bloc.");
+                return;
+            }
+
+            var catalog = CatalogService.Load(ResolveCatalogPath());
+            var validator = new ValidationService(catalog, docsDir);
+            ValidationReport validation = validator.Validate(parseResult.Document);
+
+            foreach (var issue in validation.Issues)
+            {
+                string level = issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ";
+                string item = issue.Item.Length > 0 ? issue.Section + " · " + issue.Item : issue.Section;
+                Console.WriteLine($"  {level} {item}: {issue.Message}");
+            }
+
+            if (validation.HasErrors)
+            {
+                Console.WriteLine("Abortat: hi ha errors de validació.");
+                return;
+            }
+
+            string fullTargetParent = Path.GetFullPath(targetDirectory);
+            string targetProjectDirectory = Path.Combine(fullTargetParent, projectName);
+            if (Directory.Exists(targetProjectDirectory)
+                && Directory.EnumerateFileSystemEntries(targetProjectDirectory).Any())
+            {
+                Console.WriteLine($"Abortat: la carpeta destí ja conté fitxers: {targetProjectDirectory}");
+                return;
+            }
+
+            Directory.CreateDirectory(fullTargetParent);
+
+            try
+            {
+                connection.ConnectHeadless();
+                connection.OpenProject(templatePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut obrir el projecte template: {ex.Message}");
+                return;
+            }
+
+            if (!connection.OpenedProject)
+            {
+                Console.WriteLine("FAIL: el projecte template ja estava obert a TIA Portal; tanqueu-lo abans de generar-ne una còpia.");
+                return;
+            }
+
+            try
+            {
+                connection.Project.SaveAs(new DirectoryInfo(targetProjectDirectory));
+                string? clonePath = Directory
+                    .GetFiles(targetProjectDirectory, "*.ap21", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                if (clonePath == null)
+                    throw new InvalidOperationException("No s'ha trobat el fitxer .ap21 del projecte clonat.");
+
+                connection.ForceCloseProject();
+                connection.OpenProject(clonePath);
+                Console.WriteLine($"Projecte clonat: {clonePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut clonar el template: {ex.Message}");
+                return;
+            }
+
+            BlocksGenerationReport report;
+            try
+            {
+                report = new BlocksGenerationService(connection.Project, docsDir).Generate(
+                    parseResult.Document,
+                    new BlocksGenerationOptions
+                    {
+                        OverrideExisting = overrideExisting,
+                        Compile = compile,
+                    });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: error inesperat important blocs: {ex.Message}");
+                return;
+            }
+
+            PrintBlocksGenerationReport(report);
+
+            bool compileOk = report.CompileResult == null || report.CompileResult.ErrorCount == 0;
+            if (report.FailedCount > 0 || !compileOk)
+            {
+                Console.WriteLine("El projecte NO es desa perquè hi ha blocs fallits o errors de compilació.");
+                return;
+            }
+
+            try
+            {
+                connection.Project.Save();
+                Console.WriteLine($"Projecte desat: {connection.Project.Path.FullName}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut desar el projecte: {ex.Message}");
+            }
+        }
+
+        private static void PrintBlocksGenerationReport(BlocksGenerationReport report)
+        {
+            foreach (BlockGenerationItemReport item in report.Items)
+            {
+                string group = string.IsNullOrWhiteSpace(item.GroupPath) ? "(root)" : item.GroupPath;
+                string status = item.Action.ToString().ToUpperInvariant();
+                string error = item.Error == null ? string.Empty : $" ERROR={item.Error}";
+                Console.WriteLine($"  {status,-11} {item.Device}/{group}/{item.Name} ({item.BlockType}){error}");
+            }
+
+            if (report.CompileResult != null)
+            {
+                Console.WriteLine(
+                    $"  COMPILE state={report.CompileResult.State} " +
+                    $"errors={report.CompileResult.ErrorCount} warnings={report.CompileResult.WarningCount}");
+            }
+
+            foreach (string error in report.Errors)
+                Console.WriteLine($"  ERROR: {error}");
+
+            Console.WriteLine(
+                $"Blocks: {report.ImportedCount} imported, {report.OverriddenCount} overridden, " +
+                $"{report.SkippedCount} skipped, {report.FailedCount} failed.");
+        }
+
+        private sealed class PocExportedBlock
+        {
+            public BlockInventoryItem Source { get; set; } = new();
+            public string FilePath { get; set; } = string.Empty;
+            public string TargetGroupPath { get; set; } = string.Empty;
+            public bool Imported { get; set; }
+        }
+
+        /// <summary>
+        /// Phase 0 PoC: export a few real blocks to SimaticML, import them into a
+        /// disposable scratch project, verify metadata and remove the scratch project.
+        /// No document, validation or generation pipeline is touched.
+        /// </summary>
+        private static void RunBlocksPoc(TiaConnection connection, string[] args)
+        {
+            string sourcePath = args[1];
+            string outDir = Path.GetFullPath(args[2]);
+            string? requestedBlock = args.Length >= 4 && !string.IsNullOrWhiteSpace(args[3]) ? args[3] : null;
+            string? deviceFilter = args.Length >= 5 && !string.IsNullOrWhiteSpace(args[4]) ? args[4] : null;
+
+            Directory.CreateDirectory(outDir);
+
+            try
+            {
+                connection.ConnectHeadless();
+                connection.OpenProject(sourcePath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"FAIL: no s'ha pogut obrir el projecte font: {ex.Message}");
+                return;
+            }
+
+            Console.WriteLine($"[1] Source project: {connection.Project.Name}");
+            var source = new BlocksExportService(connection.Project);
+            BlockInspectionResult inspection = source.Inspect(deviceFilter);
+            foreach (string error in inspection.Errors)
+                Console.WriteLine($"  ERROR: {error}");
+
+            List<BlockInventoryItem> samples = SelectPocSamples(inspection.Blocks, requestedBlock);
+            if (samples.Count == 0)
+            {
+                Console.WriteLine(requestedBlock == null
+                    ? "FAIL: no OB/FB/FC/GlobalDB/InstanceDB blocks found."
+                    : $"FAIL: block '{requestedBlock}' not found.");
+                return;
+            }
+
+            string deviceName = samples[0].DeviceName;
+            string? cpuType = source.GetCpuTypeIdentifier(deviceName);
+            string cpuName = source.GetCpuName(deviceName) ?? deviceName;
+
+            Console.WriteLine($"[2] Device: {deviceName}  CPU: {cpuName}  TypeIdent: {cpuType ?? "(unknown)"}");
+            Console.WriteLine($"    Samples: {string.Join(", ", samples.Select(s => $"{s.BlockType}:{s.Name}"))}");
+
+            string sourceDir = Path.Combine(outDir, "source", SanitizePathSegment(deviceName));
+            Directory.CreateDirectory(sourceDir);
+
+            var exported = new List<PocExportedBlock>();
+            foreach (BlockInventoryItem sample in samples)
+            {
+                string filePath = Path.Combine(sourceDir, SanitizePathSegment(sample.Name) + ".xml");
+                try
+                {
+                    BlockInventoryItem actual = source.ExportBlock(deviceName, sample.Name, new FileInfo(filePath));
+                    var file = new FileInfo(filePath);
+                    exported.Add(new PocExportedBlock { Source = actual, FilePath = filePath });
+                    Console.WriteLine($"  EXPORT {actual.BlockType,-9} {actual.Name,-24} {file.Length,7} bytes  {filePath}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  EXPORT FAILED {sample.BlockType} {sample.Name}: {ex.Message}");
+                    if (ex.InnerException != null)
+                        Console.WriteLine($"    Inner: {ex.InnerException.Message}");
+                }
+            }
+
+            if (exported.Count == 0)
+            {
+                Console.WriteLine("FAIL: no block could be exported.");
+                return;
+            }
+
+            if (!connection.OpenedProject)
+            {
+                Console.WriteLine("FAIL: el projecte font ja estava obert a TIA Portal; tanqueu-lo abans d'executar el PoC.");
+                return;
+            }
+
+            string scratchName = "BLOCKS_POC_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string scratchDir = Path.Combine(outDir, scratchName);
+            string? scratchPath = null;
+            bool scratchCreated = false;
+
+            try
+            {
+                // Clone the source project so languages, UDTs, technology objects and
+                // referenced blocks are present. This isolates the import test while
+                // still proving the real export/import round trip.
+                try
+                {
+                    connection.Project.SaveAs(new DirectoryInfo(scratchDir));
+                    scratchCreated = true;
+                    scratchPath = Directory
+                        .GetFiles(scratchDir, "*.ap21", SearchOption.AllDirectories)
+                        .FirstOrDefault();
+
+                    if (scratchPath == null)
+                        throw new InvalidOperationException("Saved project file not found in scratch folder.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"FAIL: no s'ha pogut clonar el projecte scratch: {ex.Message}");
+                    return;
+                }
+
+                Console.WriteLine($"[3] Scratch copy: {scratchPath}");
+                connection.ForceCloseProject();
+                connection.OpenProject(scratchPath);
+
+                Project scratch = connection.Project;
+                var target = new BlocksExportService(scratch);
+                PlcSoftware? targetSoftware = target.FindPlcSoftware(deviceName);
+                if (targetSoftware == null)
+                {
+                    Console.WriteLine($"FAIL: el PLC '{deviceName}' no existeix al projecte scratch.");
+                    return;
+                }
+
+                Console.WriteLine("[4] Import samples");
+                foreach (PocExportedBlock item in exported)
+                {
+                    PlcBlockComposition composition = EnsurePocGroup(
+                        targetSoftware.BlockGroup,
+                        item.Source.GroupPath,
+                        out string groupPath);
+
+                    item.TargetGroupPath = groupPath;
+                    item.Imported = ImportPocBlock(
+                        composition,
+                        item.FilePath,
+                        item.Source.Name,
+                        groupPath,
+                        ImportOptions.Override);
+                }
+
+                Console.WriteLine("[5] Override re-import");
+                PocExportedBlock? firstImported = exported.FirstOrDefault(e => e.Imported);
+                if (firstImported != null)
+                {
+                    PlcBlockComposition overrideComposition = EnsurePocGroup(
+                        targetSoftware.BlockGroup,
+                        firstImported.TargetGroupPath,
+                        out string overrideGroupPath);
+
+                    firstImported.Imported = ImportPocBlock(
+                        overrideComposition,
+                        firstImported.FilePath,
+                        firstImported.Source.Name,
+                        overrideGroupPath,
+                        ImportOptions.Override);
+                }
+                else
+                {
+                    Console.WriteLine("  (avís) no block was imported; override re-import skipped.");
+                }
+
+                Console.WriteLine("[6] Verify imported metadata");
+                BlockInspectionResult after = target.Inspect(deviceName);
+                foreach (string error in after.Errors)
+                    Console.WriteLine($"  ERROR: {error}");
+
+                foreach (PocExportedBlock item in exported)
+                {
+                    if (!item.Imported)
+                    {
+                        Console.WriteLine($"  SKIP     {item.Source.Name}: import failed");
+                        continue;
+                    }
+
+                    BlockInventoryItem? actual = after.Blocks.FirstOrDefault(b =>
+                        b.Name.Equals(item.Source.Name, StringComparison.OrdinalIgnoreCase)
+                        && b.GroupPath.Equals(item.TargetGroupPath, StringComparison.OrdinalIgnoreCase));
+
+                    if (actual == null)
+                    {
+                        Console.WriteLine(
+                            $"  MISMATCH {item.Source.Name}: not found in '{item.TargetGroupPath}' after import");
+                        continue;
+                    }
+
+                    bool match = actual.BlockType.Equals(item.Source.BlockType, StringComparison.OrdinalIgnoreCase)
+                        && actual.Number == item.Source.Number
+                        && actual.ProgrammingLanguage.Equals(item.Source.ProgrammingLanguage, StringComparison.OrdinalIgnoreCase);
+
+                    Console.WriteLine(match
+                        ? $"  MATCH    {item.Source.Name}: {actual.BlockType} No={actual.Number} {actual.ProgrammingLanguage}"
+                        : $"  MISMATCH {item.Source.Name}: source={item.Source.BlockType} No={item.Source.Number} " +
+                          $"{item.Source.ProgrammingLanguage}; target={actual.BlockType} No={actual.Number} {actual.ProgrammingLanguage}");
+                }
+
+                Console.WriteLine("[6b] Compile scratch PLC");
+                try
+                {
+                    ICompilable? compilable = targetSoftware.GetService<ICompilable>();
+                    if (compilable != null)
+                    {
+                        CompilerResult compileResult = compilable.Compile();
+                        Console.WriteLine(
+                            $"  Compile state={compileResult.State} errors={compileResult.ErrorCount} warnings={compileResult.WarningCount}");
+                    }
+                    else
+                    {
+                        Console.WriteLine("  (avís) no ICompilable service found on PlcSoftware.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  (avís) compile failed: {ex.Message}");
+                }
+
+                if (firstImported != null)
+                {
+                    string roundtripDir = Path.Combine(outDir, "roundtrip");
+                    string roundtripPath = Path.Combine(
+                        roundtripDir,
+                        SanitizePathSegment(firstImported.Source.Name) + ".xml");
+
+                    try
+                    {
+                        target.ExportBlock(deviceName, firstImported.Source.Name, new FileInfo(roundtripPath));
+                        Console.WriteLine($"[7] Re-exported imported block: {roundtripPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  (avís) re-export failed: {ex.Message}");
+                    }
+                }
+
+                try
+                {
+                    scratch.Save();
+                    Console.WriteLine("[8] Scratch project saved.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  (avís) scratch save failed: {ex.Message}");
+                }
+            }
+            finally
+            {
+                if (scratchCreated)
+                {
+                    try { connection.ForceCloseProject(); }
+                    catch (Exception ex) { Console.WriteLine($"(avís) closing scratch project: {ex.Message}"); }
+
+                    TryDeleteDirectory(scratchDir, out string deleteError);
+                    Console.WriteLine(string.IsNullOrEmpty(deleteError)
+                        ? $"[9] Scratch project removed: {scratchDir}"
+                        : $"(avís) no s'ha pogut esborrar el scratch '{scratchDir}': {deleteError}");
+                }
+            }
+        }
+
+        private static List<BlockInventoryItem> SelectPocSamples(
+            List<BlockInventoryItem> blocks,
+            string? requestedBlock)
+        {
+            if (!string.IsNullOrWhiteSpace(requestedBlock))
+            {
+                return blocks
+                    .Where(b => b.Name.Equals(requestedBlock, StringComparison.OrdinalIgnoreCase))
+                    .Take(1)
+                    .ToList();
+            }
+
+            var result = new List<BlockInventoryItem>();
+            foreach (string type in new[] { "OB", "FB", "FC", "GlobalDB", "InstanceDB" })
+            {
+                BlockInventoryItem? block = blocks.FirstOrDefault(b =>
+                    b.Error == null
+                    && !b.IsKnowHowProtected
+                    && !IsLikelySafetyBlock(b.Name)
+                    && b.BlockType.Equals(type, StringComparison.OrdinalIgnoreCase));
+
+                if (block != null)
+                    result.Add(block);
+                else
+                    Console.WriteLine($"  (avís) no unprotected, non-safety {type} block found.");
+            }
+
+            return result;
+        }
+
+        private static bool IsLikelySafetyBlock(string name)
+        {
+            return name.StartsWith("FOB", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("F_", StringComparison.OrdinalIgnoreCase)
+                || name.IndexOf("Safety", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static PlcBlockComposition EnsurePocGroup(
+            PlcBlockGroup root,
+            string groupPath,
+            out string normalizedGroupPath)
+        {
+            normalizedGroupPath = (groupPath ?? string.Empty).Trim().Trim('/');
+            if (string.IsNullOrEmpty(normalizedGroupPath))
+                return root.Blocks;
+
+            PlcBlockGroup current = root;
+            foreach (string segment in normalizedGroupPath.Split(
+                         new[] { '/' },
+                         StringSplitOptions.RemoveEmptyEntries))
+            {
+                PlcBlockUserGroup child = current.Groups.Find(segment)
+                    ?? current.Groups.Create(segment);
+                current = child;
+            }
+
+            return current.Blocks;
+        }
+
+        private static bool ImportPocBlock(
+            PlcBlockComposition composition,
+            string filePath,
+            string expectedName,
+            string groupPath,
+            ImportOptions importOptions = ImportOptions.None)
+        {
+            string label = string.IsNullOrEmpty(groupPath) ? "(root)" : groupPath;
+
+            try
+            {
+                ImportPocBlockCore(composition, filePath, expectedName, label, importOptions, SWImportOptions.None);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  IMPORT {expectedName} -> {label} failed: {ex.Message}");
+                if (ex.InnerException != null)
+                    Console.WriteLine($"    Inner: {ex.InnerException.Message}");
+
+                Console.WriteLine($"  Retry {expectedName} -> {label} with SWImportOptions.IgnoreMissingReferencedObjects");
+                try
+                {
+                    ImportPocBlockCore(
+                        composition,
+                        filePath,
+                        expectedName,
+                        label,
+                        importOptions | ImportOptions.SkipInactiveCultures,
+                        SWImportOptions.IgnoreMissingReferencedObjects);
+                    return true;
+                }
+                catch (Exception retryEx)
+                {
+                    Console.WriteLine($"  IMPORT RETRY FAILED {expectedName} -> {label}: {retryEx.Message}");
+                    if (retryEx.InnerException != null)
+                        Console.WriteLine($"    Inner: {retryEx.InnerException.Message}");
+                    return false;
+                }
+            }
+        }
+
+        private static void ImportPocBlockCore(
+            PlcBlockComposition composition,
+            string filePath,
+            string expectedName,
+            string label,
+            ImportOptions importOptions,
+            SWImportOptions swImportOptions)
+        {
+            IList<PlcBlock> imported = composition.Import(
+                new FileInfo(filePath),
+                importOptions,
+                swImportOptions);
+
+            Console.WriteLine($"  IMPORT {expectedName} -> {label}: OK ({imported.Count} block(s))");
+            foreach (PlcBlock block in imported)
+            {
+                try
+                {
+                    Console.WriteLine($"    {block.GetType().Name} {block.Name} No={block.Number} {block.ProgrammingLanguage}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"    (metadata: {ex.Message})");
+                }
+            }
+        }
+
+        private static string SanitizePathSegment(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "unnamed";
+
+            char[] invalid = Path.GetInvalidFileNameChars();
+            var builder = new StringBuilder(value.Length);
+            foreach (char c in value)
+                builder.Append(invalid.Contains(c) || c == '/' || c == '\\' ? '_' : c);
+
+            string result = builder.ToString().Trim().TrimEnd('.');
+            return string.IsNullOrEmpty(result) ? "unnamed" : result;
+        }
+
+        private static void TryDeleteDirectory(string path, out string error)
+        {
+            error = string.Empty;
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                error = "empty path";
+                return;
+            }
+
+            for (int attempt = 1; attempt <= 6; attempt++)
+            {
+                try
+                {
+                    if (!Directory.Exists(path))
+                        return;
+
+                    Directory.Delete(path, true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    System.Threading.Thread.Sleep(1500);
+                }
+            }
+        }
+
         private static void PrintCaxResult(string step, TransferResult result)
         {
             Console.WriteLine($"    {step}: State={result.State} Errors={result.ErrorCount} Warnings={result.WarningCount}");
@@ -2238,8 +2990,12 @@ namespace TiaOpennessApp
             Console.WriteLine("Extracting hardware addresses from the open project...");
             var moduleAddresses = new TagsExportService(connection).ExportModuleAddresses();
             Console.WriteLine($"  {moduleAddresses.Count} hw address(es) trobades.");
+            Console.WriteLine("Extracting program blocks from the open project...");
+            BlockDocsExportReport blockReport = new BlocksExportService(connection.Project).ExportDocs(docsDir);
+            Console.WriteLine($"  {blockReport.Exported} block(s) exportats, {blockReport.Errors.Count} avís(os).");
 
-            var report = new DocsExportService(docsDir, catalog).Export(devices, tags, moduleAddresses);
+            var report = new DocsExportService(docsDir, catalog).Export(
+                devices, tags, moduleAddresses, blockReport.Blocks);
             Console.WriteLine();
             Console.WriteLine($"Docs generats a: {report.OutputDir}");
             Console.WriteLine($"  Devices:    {report.Devices}");
@@ -2248,6 +3004,10 @@ namespace TiaOpennessApp
             Console.WriteLine($"  Interfaces: {report.Interfaces}");
             Console.WriteLine($"  IoTags:     {report.Tags}");
             Console.WriteLine($"  HwAddr:     {report.ModuleAddresses}");
+            Console.WriteLine($"  Blocks:     {report.Blocks}");
+
+            foreach (string blockError in blockReport.Errors)
+                Console.WriteLine($"  BLOCK WARN: {blockError}");
 
             if (report.TypeKeysMissing.Count > 0)
             {

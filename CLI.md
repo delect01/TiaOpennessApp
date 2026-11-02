@@ -1,4 +1,4 @@
-# TiaOpennessApp — Comandes CLI
+..# TiaOpennessApp — Comandes CLI
 
 Document de referència de totes les comandes CLI de `TiaOpennessApp`.
 
@@ -41,6 +41,8 @@ dotnet run -- <command> [arguments...]
 | `--dump-type-id` | Mostra els `TypeIdentifier` dels dispositius d'un projecte |
 | `--plug-diagnose` | Diagnòstic de connexió (plug) de mòduls a un rack |
 | `--export-docs` | Genera els CSV de documents des d'un projecte o exportació |
+| `--export-blocks` | Exporta els blocs de programa (OB/FB/FC/DB) a XML SimaticML + `Blocks.csv` |
+| `--generate-blocks` | Importa els blocs de `Blocks.csv` en un clon d'un projecte plantilla |
 | `--dump-subnets` | Mostra les xarxes (subnets) d'un projecte |
 | `--dump-interfaces` | Mostra les interfícies de xarxa d'un projecte |
 | `--gsd-cax-poc` | PoC: exporta un dispositiu GSD a AML i l'importa en un sandbox (via CAx) |
@@ -510,12 +512,26 @@ a `<directori del .exe>\catalog\Catalog.csv`.
 **Taules**: `catalog`, `devices`, `subnets`, `modules`, `interfaces`,
 `module_addresses`, `io_tags`.
 
+**Relacions**:
+- `devices.type_key` i `modules.type_key` són `NOT NULL` i han d'existir a
+  `catalog.type_key` (també es rebutja una clau buida o només espais).
+- `modules.device`, `interfaces.device`, `module_addresses.device` i
+  `io_tags.device`/`io_tags.io_device` han d'existir a `devices.device_name`.
+- `interfaces.subnet` és opcional, però si hi és ha d'existir a `subnets.name`.
+- Totes les FK són `ON UPDATE CASCADE ON DELETE RESTRICT`. A més, hi ha triggers
+  `BEFORE INSERT/UPDATE/DELETE` per a cada relació, de manera que les regles es
+  compleixen encara que la connexió tingui `PRAGMA foreign_keys=OFF`.
+
+**Files descartades**: si un `TypeKey`, dispositiu o subxarxa no existeix, la fila
+s'omet, es mostra un avís `WARN` i l'import continua amb la resta. Els errors
+d'E/S o d'esquema provoquen rollback (`Success=false`).
+
 **Vistes**: `vw_device_topology` (dispositius + catàleg + interfícies) i
 `vw_io_mapping` (tags units al rang d'adreces del submòdul, filtrat per I/Q).
 
-**Sortida**: nombre de files per taula i, si n'hi ha, errors. El mateix import
-també és accessible al menú interactiu amb l'opció **4. Import CSVs to SQLite
-database**.
+**Sortida**: nombre de files per taula, avisos de files descartades i, si n'hi
+ha, errors. El mateix import també és accessible al menú interactiu amb l'opció
+**4. Import CSVs to SQLite database**.
 
 ---
 

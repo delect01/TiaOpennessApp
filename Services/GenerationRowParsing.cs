@@ -143,6 +143,31 @@ namespace TiaOpennessApp.Services
             return spec;
         }
 
+        public static BlockSpec ParseBlockRow(string[] header, Func<int, string?> getter, string source, int row, Action<ParseIssue> addIssue)
+        {
+            var spec = new BlockSpec
+            {
+                Device = GetString(header, getter, GenerationColumns.Device) ?? string.Empty,
+                GroupPath = GetString(header, getter, GenerationColumns.GroupPath) ?? string.Empty,
+                Kind = GetString(header, getter, GenerationColumns.Kind) ?? "Block",
+                Name = GetString(header, getter, GenerationColumns.Name) ?? string.Empty,
+                Namespace = GetString(header, getter, GenerationColumns.Namespace) ?? string.Empty,
+                Number = ParseOptionalNonNegativeInt(header, getter, GenerationColumns.Number, source, row, addIssue),
+                AutoNumber = ParseOptionalBool(header, getter, GenerationColumns.AutoNumber, source, row, addIssue),
+                BlockType = GetString(header, getter, GenerationColumns.BlockType) ?? string.Empty,
+                ProgrammingLanguage = GetString(header, getter, GenerationColumns.ProgrammingLanguage) ?? string.Empty,
+                MemoryLayout = GetString(header, getter, GenerationColumns.MemoryLayout) ?? string.Empty,
+                Title = GetString(header, getter, GenerationColumns.Title) ?? string.Empty,
+                Comment = GetString(header, getter, GenerationColumns.Comment) ?? string.Empty,
+                SourceFile = GetString(header, getter, GenerationColumns.SourceFile) ?? string.Empty,
+            };
+
+            Require(spec.Device, GenerationColumns.Device, header, source, row, addIssue);
+            Require(spec.Name, GenerationColumns.Name, header, source, row, addIssue);
+            Require(spec.SourceFile, GenerationColumns.SourceFile, header, source, row, addIssue);
+            return spec;
+        }
+
         public static ModuleAddressSpec ParseModuleAddressRow(string[] header, Func<int, string?> getter, string source, int row, Action<ParseIssue> addIssue)
         {
             string ioType = GetString(header, getter, GenerationColumns.IoType) ?? string.Empty;
@@ -180,6 +205,37 @@ namespace TiaOpennessApp.Services
                 Row = row,
                 Column = ColumnIndex(header, column) + 1,
                 Message = $"L'atribut '{column}' amb valor '{value}' no és un enter no negatiu vàlid.",
+            });
+            return null;
+        }
+
+        private static int? ParseOptionalNonNegativeInt(string[] header, Func<int, string?> getter, string column, string source, int row, Action<ParseIssue> addIssue)
+        {
+            return ParseNonNegativeInt(header, getter, column, source, row, addIssue);
+        }
+
+        private static bool? ParseOptionalBool(string[] header, Func<int, string?> getter, string column, string source, int row, Action<ParseIssue> addIssue)
+        {
+            string? value = GetString(header, getter, column);
+            if (value == null)
+                return null;
+
+            if (value.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("1", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("yes", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (value.Equals("false", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("0", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("no", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            addIssue(new ParseIssue
+            {
+                Source = source,
+                Row = row,
+                Column = ColumnIndex(header, column) + 1,
+                Message = $"L'atribut '{column}' amb valor '{value}' no és un booleà vàlid.",
             });
             return null;
         }

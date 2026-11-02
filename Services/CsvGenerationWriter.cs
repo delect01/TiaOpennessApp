@@ -29,6 +29,40 @@ namespace TiaOpennessApp.Services
             WriteInterfaces(doc.Interfaces);
             WriteIoTags(doc.IoTags);
             WriteModuleAddresses(doc.ModuleAddresses);
+            WriteBlocks(doc.Blocks);
+        }
+
+        public void WriteBlocks(List<BlockSpec> blocks)
+        {
+            if (!Directory.Exists(_docsDir))
+                Directory.CreateDirectory(_docsDir);
+
+            string path = Path.Combine(_docsDir, "Blocks.csv");
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            using (var csv = new CsvWriter(writer, CreateConfig()))
+            {
+                foreach (string column in GenerationColumns.BlocksColumns)
+                    csv.WriteField(column);
+                csv.NextRecord();
+
+                foreach (var b in blocks)
+                {
+                    csv.WriteField(b.Device);
+                    csv.WriteField(b.GroupPath);
+                    csv.WriteField(string.IsNullOrWhiteSpace(b.Kind) ? "Block" : b.Kind);
+                    csv.WriteField(b.Name);
+                    csv.WriteField(b.Namespace);
+                    csv.WriteField(b.Number);
+                    csv.WriteField(b.AutoNumber);
+                    csv.WriteField(b.BlockType);
+                    csv.WriteField(b.ProgrammingLanguage);
+                    csv.WriteField(b.MemoryLayout);
+                    csv.WriteField(b.Title);
+                    csv.WriteField(b.Comment);
+                    csv.WriteField(b.SourceFile);
+                    csv.NextRecord();
+                }
+            }
         }
 
         private void WriteDevices(List<DeviceSpec> devices)

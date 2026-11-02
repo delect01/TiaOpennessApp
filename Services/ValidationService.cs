@@ -10,11 +10,13 @@ namespace TiaOpennessApp.Services
     public class ValidationService
     {
         private readonly List<CatalogEntry> _catalog;
+        private readonly string? _docsDir;
         private readonly ValidationReport _report = new ValidationReport();
 
-        public ValidationService(List<CatalogEntry> catalog)
+        public ValidationService(List<CatalogEntry> catalog, string? docsDir = null)
         {
             _catalog = catalog;
+            _docsDir = docsDir;
         }
 
         public ValidationReport Validate(GenerationDocument doc)
@@ -25,6 +27,7 @@ namespace TiaOpennessApp.Services
             ValidateIpv4(doc);
             ValidateSlots(doc);
             ValidateCatalog(doc);
+            ValidateBlocks(doc);
             BuildPlannedOperations(doc);
             return _report;
         }
@@ -346,6 +349,101 @@ namespace TiaOpennessApp.Services
                 && e.Identifier?.StartsWith("GSD:", StringComparison.OrdinalIgnoreCase) == true);
         }
 
+        private void ValidateBlocks(GenerationDocument doc)
+        {
+            if (doc.Blocks.Count == 0)
+                return;
+
+            var deviceNames = new HashSet<string>(
+                doc.Devices.Select(d => d.DeviceName),
+                StringComparer.OrdinalIgnoreCase);
+            var blockKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allowedTypes = new HashSet<string>(
+                new[] { "OB", "FB", "FC", "GlobalDB", "InstanceDB", "CodeBlock", "DataBlock" },
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (BlockSpec block in doc.Blocks)
+            {
+                string label = $"{block.Device} / {(string.IsNullOrWhiteSpace(block.GroupPath) ? "(root)" : block.GroupPath)} / {block.Name}";
+
+                if (block.Device.Length == 0)
+                    Error("Blocks", label, "El dispositiu del bloc és obligatori.");
+                else if (doc.Devices.Count > 0 && !deviceNames.Contains(block.Device))
+                    Warning("Blocks", label, $"El dispositiu '{block.Device}' no apareix a Devices.csv; cal que existeixi al projecte/template.");
+
+                if (block.Name.Length == 0)
+                    Error("Blocks", label, "El nom del bloc és obligatori.");
+
+                string normalizedGroup = NormalizeGroupPath(block.GroupPath);
+                if (!string.Equals(normalizedGroup, (block.GroupPath ?? string.Empty).Trim().Trim('/'), StringComparison.Ordinal))
+                    Error("Blocks", label, "GroupPath ha de fer servir '/' i no pot començar ni acabar amb '/'.");
+
+                if (normalizedGroup.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Any(segment => segment == "." || segment == ".."))
+                    Error("Blocks", label, "GroupPath no pot contenir segments '.' o '..'.");
+
+                if (!string.IsNullOrWhiteSpace(block.Kind)
+                    && !block.Kind.Equals("Block", StringComparison.OrdinalIgnoreCase))
+                    Warning("Blocks", label, $"Kind '{block.Kind}' encara no és compatible; per ara només s'importen blocs.");
+
+                if (block.BlockType.Length > 0 && !allowedTypes.Contains(block.BlockType))
+                    Error("Blocks", label, $"BlockType '{block.BlockType}' no reconegut.");
+
+                if (block.Number.HasValue && block.Number.Value < 0)
+                    Error("Blocks", label, "Number no pot ser negatiu.");
+
+                string key = block.Device + "\u0001" + normalizedGroup + "\u0001" + block.Name;
+                if (!blockKeys.Add(key))
+                    Error("Blocks", label, "Bloc duplicat (mateix dispositiu, grup i nom).");
+
+                ValidateBlockSourceFile(block, label);
+            }
+        }
+
+        private void ValidateBlockSourceFile(BlockSpec block, string label)
+        {
+            if (block.SourceFile.Length == 0)
+            {
+                Error("Blocks", label, "SourceFile és obligatori.");
+                return;
+            }
+
+            string normalized = block.SourceFile.Replace('\\', '/');
+            if (Path.IsPathRooted(block.SourceFile))
+            {
+                Error("Blocks", label, "SourceFile ha de ser una ruta relativa al directori de documents.");
+                return;
+            }
+
+            string[] segments = normalized.Split(new[] { '/' }, StringSplitOptions.None);
+            if (segments.Any(segment =>
+                    segment.Length == 0
+                    || segment == "."
+                    || segment == ".."
+                    || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+            {
+                Error("Blocks", label, $"SourceFile no és una ruta relativa vàlida: '{block.SourceFile}'.");
+                return;
+            }
+
+            if (!normalized.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+                Warning("Blocks", label, $"SourceFile no acaba en .xml: '{block.SourceFile}'.");
+
+            if (_docsDir != null)
+            {
+                string fullPath = Path.Combine(
+                    _docsDir,
+                    normalized.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(fullPath))
+                    Error("Blocks", label, $"No existeix el fitxer SimaticML: '{block.SourceFile}'.");
+            }
+        }
+
+        private static string NormalizeGroupPath(string? groupPath)
+        {
+            return (groupPath ?? string.Empty).Trim().Trim('/');
+        }
+
         private void BuildPlannedOperations(GenerationDocument doc)
         {
             foreach (var subnet in doc.Subnets)
@@ -367,6 +465,13 @@ namespace TiaOpennessApp.Services
                       (iface.PnDeviceName.Length > 0 ? $"; nom PN '{iface.PnDeviceName}'" : "")
                     : "sense connexió";
                 _report.PlannedOperations.Add($"Configurar '{iface.InterfaceItem}' de '{iface.Device}' {target}.");
+            }
+
+            foreach (BlockSpec block in doc.Blocks)
+            {
+                string group = string.IsNullOrWhiteSpace(block.GroupPath) ? "(root)" : block.GroupPath;
+                _report.PlannedOperations.Add(
+                    $"Importar bloc '{block.Name}' ({block.BlockType}) a '{block.Device}/{group}' des de '{block.SourceFile}'.");
             }
         }
 

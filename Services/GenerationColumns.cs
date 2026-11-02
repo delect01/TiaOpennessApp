@@ -8,6 +8,7 @@ namespace TiaOpennessApp.Services
         public const string Interfaces = "Interfaces";
         public const string IoTags = "IoTags";
         public const string ModuleAddresses = "ModuleAddresses";
+        public const string Blocks = "Blocks";
 
         public const string DeviceName = "DeviceName";
         public const string Group = "Group";
@@ -34,6 +35,16 @@ namespace TiaOpennessApp.Services
         public const string IoType = "IoType";
         public const string StartAddress = "StartAddress";
         public const string Length = "Length";
+        public const string GroupPath = "GroupPath";
+        public const string Kind = "Kind";
+        public const string Namespace = "Namespace";
+        public const string Number = "Number";
+        public const string AutoNumber = "AutoNumber";
+        public const string BlockType = "BlockType";
+        public const string ProgrammingLanguage = "ProgrammingLanguage";
+        public const string MemoryLayout = "MemoryLayout";
+        public const string Title = "Title";
+        public const string SourceFile = "SourceFile";
 
         public static readonly string[] DevicesColumns = { DeviceName, Group, TypeKey, Firmware, Comment };
         public static readonly string[] ModulesColumns = { Device, ModuleName, Slot, TypeKey, Comment };
@@ -41,5 +52,10 @@ namespace TiaOpennessApp.Services
         public static readonly string[] InterfacesColumns = { Device, InterfaceItem, Subnet, IpAddress, SubnetMask, PnDeviceName, MasterIoSystem };
         public static readonly string[] IoTagsColumns = { Device, IoDevice, ModuleName, SubModuleName, TagTable, Name, Type, Address, Comment };
         public static readonly string[] ModuleAddressesColumns = { Device, ModuleName, SubModuleName, TypeIdentifier, IoType, StartAddress, Length };
+        public static readonly string[] BlocksColumns =
+        {
+            Device, GroupPath, Kind, Name, Namespace, Number, AutoNumber, BlockType,
+            ProgrammingLanguage, MemoryLayout, Title, Comment, SourceFile,
+        };
     }
 }

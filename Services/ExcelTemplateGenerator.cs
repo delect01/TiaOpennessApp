@@ -52,6 +52,7 @@ namespace TiaOpennessApp.Services
                 WriteInterfaces(workbook.AddWorksheet(GenerationColumns.Interfaces), document.Interfaces);
                 WriteIoTags(workbook.AddWorksheet(GenerationColumns.IoTags), document.IoTags);
                 WriteModuleAddresses(workbook.AddWorksheet(GenerationColumns.ModuleAddresses), document.ModuleAddresses);
+                WriteBlocks(workbook.AddWorksheet(GenerationColumns.Blocks), document.Blocks);
                 workbook.SaveAs(path);
             }
         }
@@ -168,6 +169,34 @@ namespace TiaOpennessApp.Services
                 ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.IoType)).Value = rows[i].IoType;
                 ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.StartAddress)).Value = rows[i].StartAddress;
                 ws.Cell(r, Column(GenerationColumns.ModuleAddressesColumns, GenerationColumns.Length)).Value = rows[i].Length;
+            }
+        }
+
+        private static void WriteBlocks(IXLWorksheet ws, List<BlockSpec> rows)
+        {
+            WriteHeader(ws, GenerationColumns.BlocksColumns);
+            SetWidths(ws, new[] { 14, 24, 10, 28, 18, 8, 10, 12, 18, 12, 30, 40, 42 });
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                int r = 2 + i;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Device)).Value = rows[i].Device;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.GroupPath)).Value = rows[i].GroupPath;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Kind)).Value = rows[i].Kind;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Name)).Value = rows[i].Name;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Namespace)).Value = rows[i].Namespace;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Number)).Value = rows[i].Number;
+                if (rows[i].AutoNumber.HasValue)
+                {
+                    bool autoNumber = rows[i].AutoNumber ?? false;
+                    ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.AutoNumber)).Value = autoNumber;
+                }
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.BlockType)).Value = rows[i].BlockType;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.ProgrammingLanguage)).Value = rows[i].ProgrammingLanguage;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.MemoryLayout)).Value = rows[i].MemoryLayout;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Title)).Value = rows[i].Title;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.Comment)).Value = rows[i].Comment;
+                ws.Cell(r, Column(GenerationColumns.BlocksColumns, GenerationColumns.SourceFile)).Value = rows[i].SourceFile;
             }
         }
 
