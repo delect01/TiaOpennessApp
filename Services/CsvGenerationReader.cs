@@ -30,14 +30,21 @@ namespace TiaOpennessApp.Services
             _blocksPath = blocksPath;
         }
 
+        /// <summary>
+        /// Si és cert, l'absència de Devices/Modules/Subnets/Interfaces.csv és un
+        /// avís en lloc d'un error. Ho fa servir <c>--generate-blocks</c>, on el
+        /// maquinari ja existeix al projecte plantilla.
+        /// </summary>
+        public bool HardwareOptional { get; set; }
+
         public GenerationParseResult Read()
         {
             var result = new GenerationParseResult();
 
-            result.Document.Devices = ReadDevices(_devicesPath, result.Issues);
-            result.Document.Modules = ReadModules(_modulesPath, result.Issues);
-            result.Document.Subnets = ReadSubnets(_subnetsPath, result.Issues);
-            result.Document.Interfaces = ReadInterfaces(_interfacesPath, result.Issues);
+            result.Document.Devices = ReadDevices(_devicesPath, result.Issues, HardwareOptional);
+            result.Document.Modules = ReadModules(_modulesPath, result.Issues, HardwareOptional);
+            result.Document.Subnets = ReadSubnets(_subnetsPath, result.Issues, HardwareOptional);
+            result.Document.Interfaces = ReadInterfaces(_interfacesPath, result.Issues, HardwareOptional);
             result.Document.IoTags = ReadIoTags(_ioTagsPath, result.Issues);
             result.Document.ModuleAddresses = ReadModuleAddresses(_moduleAddressesPath, result.Issues);
             result.Document.Blocks = ReadBlocks(_blocksPath, result.Issues);
@@ -45,10 +52,10 @@ namespace TiaOpennessApp.Services
             return result;
         }
 
-        private static List<DeviceSpec> ReadDevices(string path, List<ParseIssue> issues)
+        private static List<DeviceSpec> ReadDevices(string path, List<ParseIssue> issues, bool optional)
         {
             var list = new List<DeviceSpec>();
-            using (var csv = Open(path, issues))
+            using (var csv = Open(path, issues, optional))
             {
                 if (csv == null) return list;
                 string source = Path.GetFileName(path);
@@ -64,10 +71,10 @@ namespace TiaOpennessApp.Services
             return list;
         }
 
-        private static List<ModuleSpec> ReadModules(string path, List<ParseIssue> issues)
+        private static List<ModuleSpec> ReadModules(string path, List<ParseIssue> issues, bool optional)
         {
             var list = new List<ModuleSpec>();
-            using (var csv = Open(path, issues))
+            using (var csv = Open(path, issues, optional))
             {
                 if (csv == null) return list;
                 string source = Path.GetFileName(path);
@@ -83,10 +90,10 @@ namespace TiaOpennessApp.Services
             return list;
         }
 
-        private static List<SubnetSpec> ReadSubnets(string path, List<ParseIssue> issues)
+        private static List<SubnetSpec> ReadSubnets(string path, List<ParseIssue> issues, bool optional)
         {
             var list = new List<SubnetSpec>();
-            using (var csv = Open(path, issues))
+            using (var csv = Open(path, issues, optional))
             {
                 if (csv == null) return list;
                 string source = Path.GetFileName(path);
@@ -102,10 +109,10 @@ namespace TiaOpennessApp.Services
             return list;
         }
 
-        private static List<InterfaceSpec> ReadInterfaces(string path, List<ParseIssue> issues)
+        private static List<InterfaceSpec> ReadInterfaces(string path, List<ParseIssue> issues, bool optional)
         {
             var list = new List<InterfaceSpec>();
-            using (var csv = Open(path, issues))
+            using (var csv = Open(path, issues, optional))
             {
                 if (csv == null) return list;
                 string source = Path.GetFileName(path);
@@ -217,11 +224,18 @@ namespace TiaOpennessApp.Services
             return list;
         }
 
-        private static CsvReader? Open(string path, List<ParseIssue> issues)
+        private static CsvReader? Open(string path, List<ParseIssue> issues, bool optional = false)
         {
             if (!File.Exists(path))
             {
-                issues.Add(new ParseIssue { Source = Path.GetFileName(path), Message = "Fitxer no trobat." });
+                issues.Add(optional
+                    ? new ParseIssue
+                    {
+                        Source = Path.GetFileName(path),
+                        Level = ParseIssueLevel.Warning,
+                        Message = "Fitxer no trobat (opcional en aquest mode); s'ignora.",
+                    }
+                    : new ParseIssue { Source = Path.GetFileName(path), Message = "Fitxer no trobat." });
                 return null;
             }
 

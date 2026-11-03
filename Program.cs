@@ -932,7 +932,7 @@ namespace TiaOpennessApp
                               "--export-cax-project | --import-db | --db-to-csv");
         }
 
-        private static GenerationParseResult ReadCsvDocs(string docsDir)
+        private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)
         {
             string GetPath(string fileName) => Path.Combine(docsDir, fileName);
             var reader = new CsvGenerationReader(
@@ -942,7 +942,10 @@ namespace TiaOpennessApp
                 GetPath("Interfaces.csv"),
                 GetPath("IoTags.csv"),
                 GetPath("ModuleAddresses.csv"),
-                GetPath("Blocks.csv"));
+                GetPath("Blocks.csv"))
+            {
+                HardwareOptional = hardwareOptional,
+            };
             return reader.Read();
         }
 
@@ -1490,11 +1493,26 @@ namespace TiaOpennessApp
             List<IoTagSpec> sourceTags = new TagsExportService(connection.Project).ExportIoTags();
             List<ModuleAddressSpec> sourceModuleAddresses =
                 new TagsExportService(connection.Project).ExportModuleAddresses();
-            var docsReport = new DocsExportService(workDir, catalog).Export(sourceDevices, sourceTags, sourceModuleAddresses);
+
+            // Blocs de programa: XML SimaticML a workDir\blocks + files per a Blocks.csv.
+            string blocksDir = Path.Combine(workDir, "blocks");
+            if (Directory.Exists(blocksDir))
+            {
+                try { Directory.Delete(blocksDir, true); }
+                catch (Exception ex) { Console.WriteLine($"  (avís) no s'ha pogut netejar {blocksDir}: {ex.Message}"); }
+            }
+            BlockDocsExportReport sourceBlocksReport = new BlocksExportService(connection.Project).ExportDocs(workDir);
+            List<BlockSpec> sourceBlocks = sourceBlocksReport.Blocks;
+
+            var docsReport = new DocsExportService(workDir, catalog)
+                .Export(sourceDevices, sourceTags, sourceModuleAddresses, sourceBlocks);
             Console.WriteLine($"Docs a {workDir}: {docsReport.Devices} devices, {docsReport.Modules} modules, " +
                               $"{docsReport.Subnets} subnets, {docsReport.Interfaces} interfaces, " +
-                              $"{docsReport.Tags} I/O tags, {docsReport.ModuleAddresses} hw adreces.");
-            Console.WriteLine("  (info) els I/O tags i les adreces de maquinari s'exporten i es regeneraran al pas 4.");
+                              $"{docsReport.Tags} I/O tags, {docsReport.ModuleAddresses} hw adreces, " +
+                              $"{docsReport.Blocks} blocs ({sourceBlocksReport.Skipped} protegits saltats).");
+            foreach (string blockError in sourceBlocksReport.Errors)
+                Console.WriteLine($"  BLOCK WARN: {blockError}");
+            Console.WriteLine("  (info) els I/O tags, les adreces de maquinari i els blocs s'exporten i es regeneraran al pas 4.");
             if (docsReport.TypeKeysMissing.Count > 0)
                 Console.WriteLine($"  (avís) TypeKeys no resolts: {string.Join(", ", docsReport.TypeKeysMissing)}");
 
@@ -1532,6 +1550,35 @@ namespace TiaOpennessApp
                 Console.WriteLine("\nROUNDTRIP FAILED: la generació no ha completat.");
                 Environment.ExitCode = 1;
                 return;
+            }
+
+            // PAS 4b: importar els blocs de programa al projecte generat (ja té el maquinari).
+            BlocksGenerationReport? blocksGen = null;
+            if (sourceBlocks.Count > 0)
+            {
+                Console.WriteLine("\n═══ BLOCK GENERATION ═══");
+                try
+                {
+                    blocksGen = new BlocksGenerationService(gen.Project, workDir).Generate(
+                        new GenerationDocument { Blocks = sourceBlocks },
+                        new BlocksGenerationOptions { OverrideExisting = false, Compile = true });
+                    PrintBlocksGenerationReport(blocksGen);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  ERROR inesperat important blocs: {ex.Message}");
+                }
+
+                // Es desa sempre (és un projecte de prova) per poder inspeccionar el resultat.
+                try
+                {
+                    gen.Project.Save();
+                    Console.WriteLine("  Projecte desat amb els blocs.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  (avís) no s'ha pogut desar després dels blocs: {ex.Message}");
+                }
             }
 
             // PAS 5: re-exportar el generat i comparar amb la font
@@ -1573,6 +1620,25 @@ namespace TiaOpennessApp
             if (sourceModuleAddresses.Count > 0)
                 hwAddressMismatch = CompareHwAddresses(sourceModuleAddresses, actualModuleAddresses);
 
+            // Re-inspecció dels blocs del projecte generat per verificar-los amb la font.
+            int blocksFailed = blocksGen?.FailedCount ?? 0;
+            if (sourceBlocks.Count > 0 && blocksGen == null)
+                blocksFailed = sourceBlocks.Count;
+            List<string> blocksMissing = new List<string>();
+            int actualBlockCount = 0;
+            if (sourceBlocks.Count > 0)
+            {
+                BlockInspectionResult actualBlocks = new BlocksExportService(gen.Project).Inspect();
+                actualBlockCount = actualBlocks.Blocks.Count;
+                blocksMissing = CompareBlocks(sourceBlocks, actualBlocks.Blocks);
+                foreach (string missing in blocksMissing.Take(20))
+                    Console.WriteLine($"  BLOC NO REPRODUÏT: {missing}");
+                if (blocksMissing.Count > 20)
+                    Console.WriteLine($"  ... i {blocksMissing.Count - 20} més");
+            }
+            int compileErrors = blocksGen?.CompileResult?.ErrorCount ?? 0;
+            int compileWarnings = blocksGen?.CompileResult?.WarningCount ?? 0;
+
             Console.WriteLine("\n═══ ROUNDTRIP SUMMARY ═══");
             Console.WriteLine($"  Devices  : {gen.Devices.Count} total | {hardDeviceErrors} errors durs | {gsdDeviceErrors} GSD coneguts (licència)");
             Console.WriteLine($"  Modules  : {moduleErrors} errors (derivats de dispositius GSD no creats)");
@@ -1586,8 +1652,13 @@ namespace TiaOpennessApp
                               (hwAddressMismatch > 0 ? $" | {hwAddressMismatch} discrepàncies" : string.Empty));
             Console.WriteLine($"  Topology : {diff.Differences} diferències | {diff.Explained} explicades " +
                               $"({diff.KnownGaps} GSD esperats) | {diff.DevicesCompared} dispositius comparats");
+            Console.WriteLine($"  Blocks   : {blocksGen?.ImportedCount ?? 0} importats | {blocksFailed} fallits | " +
+                              $"{blocksMissing.Count} no reproduïts | re-inspeccionats {actualBlockCount} " +
+                              $"(font: {sourceBlocks.Count}, {sourceBlocksReport.Skipped} protegits saltats) | " +
+                              $"compilació {compileErrors} errors, {compileWarnings} warnings");
 
-            bool pass = hardDeviceErrors == 0 && subnetErrors == 0;
+            bool pass = hardDeviceErrors == 0 && subnetErrors == 0
+                        && blocksFailed == 0 && blocksMissing.Count == 0;
             Console.WriteLine($"\n  RESULTAT: {(pass ? "PASS" : "FAIL")}  " +
                               $"({(pass ? "cap error dur al camí Siemens; els GSD coneguts no compten" : "hi ha errors durs a resoldre")})");
             Environment.ExitCode = pass ? 0 : 1;
@@ -1758,6 +1829,27 @@ namespace TiaOpennessApp
         /// contrapartida exacta (dispositiu/mòdul/submòdul/tipus/inici/llargada)
         /// a la re-exportació del projecte generat. 0 = mapa d'adreces reproduït.
         /// </summary>
+        /// <summary>
+        /// Retorna els blocs de l'origen que no tenen contrapartida exacta
+        /// (dispositiu/grup/nom/tipus/número/llenguatge) al projecte generat.
+        /// Llista buida = blocs reproduïts.
+        /// </summary>
+        private static List<string> CompareBlocks(List<BlockSpec> expected, List<BlockInventoryItem> actual)
+        {
+            static string Key(string device, string group, string name, string type, int? number, string language) =>
+                $"{device}|{group}|{name}|{type}|{number?.ToString(CultureInfo.InvariantCulture) ?? "?"}|{language}";
+
+            var actualSet = new HashSet<string>(
+                actual.Where(a => a.Error == null).Select(a => Key(a.DeviceName, a.GroupPath, a.Name,
+                    a.BlockType, a.Number, a.ProgrammingLanguage)),
+                StringComparer.OrdinalIgnoreCase);
+
+            return expected
+                .Select(e => Key(e.Device, e.GroupPath, e.Name, e.BlockType, e.Number, e.ProgrammingLanguage))
+                .Where(k => !actualSet.Contains(k))
+                .ToList();
+        }
+
         private static int CompareHwAddresses(List<ModuleAddressSpec> expected, List<ModuleAddressSpec> actual)
         {
             static string Key(ModuleAddressSpec a) =>
@@ -2068,7 +2160,8 @@ namespace TiaOpennessApp
             Console.WriteLine($"Override:      {overrideExisting}");
             Console.WriteLine($"Compile:       {compile}");
 
-            GenerationParseResult parseResult = ReadCsvDocs(docsDir);
+            // El maquinari ja és al template: només cal Blocks.csv.
+            GenerationParseResult parseResult = ReadCsvDocs(docsDir, hardwareOptional: true);
             PrintIssues(parseResult.Issues);
             if (parseResult.HasErrors)
             {
@@ -2949,8 +3042,8 @@ namespace TiaOpennessApp
             Console.WriteLine("├────────────────────────────────────┤");
             Console.WriteLine("│  1. Project Info                   │");
             Console.WriteLine("│  2. Network Devices Tree           │");
-            Console.WriteLine("│  3. Export Docs → 5 CSV files      │");
-            Console.WriteLine("│  4. Generate Catalog → Catalog.csv │");
+            Console.WriteLine("│  3. Export Project to CSV files    │");
+            Console.WriteLine("│  4. Generate Catalog               │");
             Console.WriteLine("│  0. Return                         │");
             Console.WriteLine("└────────────────────────────────────┘");
             Console.Write("Select: ");

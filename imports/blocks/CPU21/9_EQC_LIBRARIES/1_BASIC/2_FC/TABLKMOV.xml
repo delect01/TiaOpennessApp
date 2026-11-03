@@ -1,0 +1,811 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V21" />
+  <DocumentInfo>
+    <Created>2026-11-03T09:19:34.5346363Z</Created>
+    <ExportSetting>WithDefaults</ExportSetting>
+    <InstalledProducts>
+      <Product>
+        <DisplayName>Totally Integrated Automation Portal</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <Product>
+        <DisplayName>SINAMICS Startdrive Advanced</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>SINAMICS Startdrive G130, G150, S120, S150, G200, G210, G210C, G210X, G220, S200, S210, S220, Innomotics MVD</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </OptionPackage>
+      <OptionPackage>
+        <DisplayName>SINAMICS Startdrive G110M, G120, G120C, G120D, G120P, G115D</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>STEP 7 Professional</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>STEP 7 Safety</DisplayName>
+        <DisplayVersion>V21</DisplayVersion>
+      </OptionPackage>
+      <OptionPackage>
+        <DisplayName>Tech WebApplication</DisplayName>
+        <DisplayVersion>V21</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>WinCC Basic/Comfort/Advanced</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <Product>
+        <DisplayName>WinCC Unified</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+    </InstalledProducts>
+  </DocumentInfo>
+  <SW.Blocks.FC ID="0">
+    <AttributeList>
+      <AutoNumber>false</AutoNumber>
+      <HeaderAuthor>EQC</HeaderAuthor>
+      <HeaderFamily>EQC</HeaderFamily>
+      <HeaderName>TABLKMOV</HeaderName>
+      <HeaderVersion>1.0</HeaderVersion>
+      <Interface>
+        <Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+          <Section Name="Input">
+            <Member Name="Area_Fuente" Datatype="Any" Accessibility="Public" />
+            <Member Name="Indice" Datatype="Int" Accessibility="Public" />
+          </Section>
+          <Section Name="Output">
+            <Member Name="Area_Destino" Datatype="Any" Accessibility="Public" />
+          </Section>
+          <Section Name="InOut" />
+          <Section Name="Temp">
+            <Member Name="Aux_Fuente" Datatype="Any" />
+            <Member Name="Aux_Destino" Datatype="Any" />
+            <Member Name="Aux_Ret_Val" Datatype="Int" />
+            <Member Name="Longitud" Datatype="Int" />
+          </Section>
+          <Section Name="Constant" />
+          <Section Name="Return">
+            <Member Name="Ret_Val" Datatype="Int" Accessibility="Public" />
+          </Section>
+        </Sections>
+      </Interface>
+      <MemoryLayout>Standard</MemoryLayout>
+      <Name>TABLKMOV</Name>
+      <Namespace />
+      <Number>81</Number>
+      <ProgrammingLanguage>STL</ProgrammingLanguage>
+      <UDABlockProperties />
+      <UDAEnableTagReadback>false</UDAEnableTagReadback>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="3" CompositionName="Items">
+            <AttributeList>
+              <Culture>es-ES</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>fr-FR</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <SW.Blocks.CompileUnit ID="5" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <StatementList xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StatementList/v5">
+              <StlStatement UId="22">
+                <StlToken Text="L" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="Indice" />
+                  </Symbol>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="24">
+                <StlToken Text="L" />
+                <Access Scope="LiteralConstant">
+                  <Constant>
+                    <ConstantType>Int</ConstantType>
+                    <ConstantValue>1</ConstantValue>
+                  </Constant>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="26">
+                <StlToken Text="LT_I" />
+              </StlStatement>
+              <StlStatement UId="27">
+                <StlToken Text="JC" />
+                <Access Scope="Label">
+                  <Label Name="zero" />
+                </Access>
+              </StlStatement>
+            </StatementList>
+          </NetworkSource>
+          <ProgrammingLanguage>STL</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="6" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="7" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="8" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="9" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="A" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="B" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text>CHECK INDEX LLIMITS</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="C" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>COMPROBAR LIMITES INDICE</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="D" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+      <SW.Blocks.CompileUnit ID="E" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <StatementList xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StatementList/v5">
+              <StlStatement UId="29">
+                <StlToken Text="L" />
+                <Access Scope="AddressConstant">
+                  <Constant Name="Area_Fuente" Scope="local" />
+                  <LineComment Inserted="false">
+                    <Text>Cargar la dirección de la Entrada #Area_Fuente  en AR1</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="32">
+                <StlToken Text="LAR1_ACCU1" />
+              </StlStatement>
+              <StlStatement UId="33">
+                <StlToken Text="L" />
+                <Access Scope="AddressConstant">
+                  <Constant Name="Aux_Fuente" Scope="local" />
+                  <LineComment Inserted="false">
+                    <Text>Cargar la dirección de la varible local #Aux_Fuente  en AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="36">
+                <StlToken Text="LAR2_ACCU1" />
+              </StlStatement>
+              <StlStatement UId="37">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="38">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR1" BitOffset="0" />
+                  <LineComment Inserted="false">
+                    <Text>Lee sintaxis S7 de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="41">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR2" BitOffset="0" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="43">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="44">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR1" BitOffset="8" />
+                  <LineComment Inserted="false">
+                    <Text>Lee tipo dedatos de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="47">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR2" BitOffset="8" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="49">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="50">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR1" BitOffset="16" />
+                  <LineComment Inserted="false">
+                    <Text>Lee longitus datos de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="53">
+                <StlToken Text="T" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="Longitud" />
+                  </Symbol>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="55">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="56">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR2" BitOffset="16" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="58">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="59">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR1" BitOffset="32" />
+                  <LineComment Inserted="false">
+                    <Text>Lee numero DB datos de AR1 y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="62">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR2" BitOffset="32" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="64">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="65">
+                <StlToken Text="L" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="Indice" />
+                  </Symbol>
+                  <LineComment Inserted="false">
+                    <Text>Desplaza la direccion segun el indice * longitud</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="68">
+                <StlToken Text="L" />
+                <Access Scope="LiteralConstant">
+                  <Constant>
+                    <ConstantType>Int</ConstantType>
+                    <ConstantValue>1</ConstantValue>
+                  </Constant>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="70">
+                <StlToken Text="SUB_I" />
+              </StlStatement>
+              <StlStatement UId="71">
+                <StlToken Text="L" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="Longitud" />
+                  </Symbol>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="73">
+                <StlToken Text="MUL_I" />
+              </StlStatement>
+              <StlStatement UId="74">
+                <StlToken Text="SLD" />
+                <Access Scope="LiteralConstant">
+                  <Constant>
+                    <ConstantType>Int</ConstantType>
+                    <ConstantValue>3</ConstantValue>
+                  </Constant>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="76">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Double" Area="None" Register="AR1" BitOffset="48" />
+                  <LineComment Inserted="false">
+                    <Text>Lee el tipo de dato y la direccion Byte.Bit de AR1</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="79">
+                <StlToken Text="ADD_D" />
+              </StlStatement>
+              <StlStatement UId="80">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Double" Area="None" Register="AR2" BitOffset="48" />
+                  <LineComment Inserted="false">
+                    <Text> y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="83">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="84">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+            </StatementList>
+          </NetworkSource>
+          <ProgrammingLanguage>STL</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="F" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="10" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="11" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="12" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="13" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="14" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text>DESTINATION AREA SOURCE</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="15" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>PUNTERO AREA FUENTE</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="16" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text>POINTEUR DE ZONE DE SOURCE</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+      <SW.Blocks.CompileUnit ID="17" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <StatementList xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StatementList/v5">
+              <StlStatement UId="85">
+                <StlToken Text="L" />
+                <Access Scope="AddressConstant">
+                  <Constant Name="Area_Destino" Scope="local" />
+                  <LineComment Inserted="false">
+                    <Text>Cargar la dirección de la Salida #Area_Destino  en AR1</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="88">
+                <StlToken Text="LAR1_ACCU1" />
+              </StlStatement>
+              <StlStatement UId="89">
+                <StlToken Text="L" />
+                <Access Scope="AddressConstant">
+                  <Constant Name="Aux_Destino" Scope="local" />
+                  <LineComment Inserted="false">
+                    <Text>Cargar la dirección de la variable local #Aux_Destino en AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="92">
+                <StlToken Text="LAR2_ACCU1" />
+              </StlStatement>
+              <StlStatement UId="93">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="94">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR1" BitOffset="0" />
+                  <LineComment Inserted="false">
+                    <Text>Lee sintaxis S7 de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="97">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR2" BitOffset="0" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="99">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="100">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR1" BitOffset="8" />
+                  <LineComment Inserted="false">
+                    <Text>Lee tipo dedatos de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="103">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Byte" Area="None" Register="AR2" BitOffset="8" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="105">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="106">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR1" BitOffset="16" />
+                  <LineComment Inserted="false">
+                    <Text>Lee longitus datos de AR1  y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="109">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR2" BitOffset="16" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="111">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="112">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR1" BitOffset="32" />
+                  <LineComment Inserted="false">
+                    <Text>Lee numero DB datos de AR1 y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="115">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Word" Area="None" Register="AR2" BitOffset="32" />
+                </Access>
+              </StlStatement>
+              <StlStatement UId="117">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="118">
+                <StlToken Text="L" />
+                <Access Scope="Address">
+                  <Indirect Width="Double" Area="None" Register="AR1" BitOffset="48" />
+                  <LineComment Inserted="false">
+                    <Text>Lee el tipo de dato y la direccion Byte.Bit de AR1</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="121">
+                <StlToken Text="T" />
+                <Access Scope="Address">
+                  <Indirect Width="Double" Area="None" Register="AR2" BitOffset="48" />
+                  <LineComment Inserted="false">
+                    <Text> y traspasa a AR2</Text>
+                  </LineComment>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="124">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+            </StatementList>
+          </NetworkSource>
+          <ProgrammingLanguage>STL</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="18" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="19" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="1A" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="1B" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="1C" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="1D" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text>DESTINATION AREA POINTER</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="1E" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>PUNTERO AREA DESTINO</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="1F" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text>POINTEUR DE ZONE DE DESTINATION</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+      <SW.Blocks.CompileUnit ID="20" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <StatementList xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StatementList/v5">
+              <StlStatement UId="125">
+                <StlToken Text="CALL" />
+                <Access Scope="Call">
+                  <Instruction Name="BLKMOV" Version="1.1">
+                    <TemplateValue Name="blk_type" Type="Type">Variant</TemplateValue>
+                    <Parameter Name="SRCBLK">
+                      <Access Scope="LocalVariable">
+                        <Symbol>
+                          <Component Name="Aux_Fuente" />
+                        </Symbol>
+                      </Access>
+                    </Parameter>
+                    <Parameter Name="RET_VAL">
+                      <Access Scope="LocalVariable">
+                        <Symbol>
+                          <Component Name="Aux_Ret_Val" />
+                        </Symbol>
+                      </Access>
+                    </Parameter>
+                    <Parameter Name="DSTBLK">
+                      <Access Scope="LocalVariable">
+                        <Symbol>
+                          <Component Name="Aux_Destino" />
+                        </Symbol>
+                      </Access>
+                    </Parameter>
+                  </Instruction>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="131">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="132">
+                <StlToken Text="L" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="Aux_Ret_Val" />
+                  </Symbol>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="134">
+                <StlToken Text="JU" />
+                <Access Scope="Label">
+                  <Label Name="end" />
+                </Access>
+              </StlStatement>
+            </StatementList>
+          </NetworkSource>
+          <ProgrammingLanguage>STL</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="21" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="22" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="23" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="24" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="25" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="26" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="27" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="28" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+      <SW.Blocks.CompileUnit ID="29" CompositionName="CompileUnits">
+        <AttributeList>
+          <NetworkSource>
+            <StatementList xmlns="http://www.siemens.com/automation/Openness/SW/NetworkSource/StatementList/v5">
+              <StlStatement UId="136">
+                <LabelDeclaration>
+                  <Label Name="zero" />
+                </LabelDeclaration>
+                <StlToken Text="L" />
+                <Access Scope="TypedConstant">
+                  <Constant>
+                    <ConstantValue>W#16#827F</ConstantValue>
+                  </Constant>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="139">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="140">
+                <LabelDeclaration>
+                  <Label Name="end" />
+                </LabelDeclaration>
+                <StlToken Text="T" />
+                <Access Scope="LocalVariable">
+                  <Symbol>
+                    <Component Name="TABLKMOV" />
+                  </Symbol>
+                </Access>
+              </StlStatement>
+              <StlStatement UId="143">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="144">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+              <StlStatement UId="145">
+                <StlToken Text="EMPTY_LINE" />
+              </StlStatement>
+            </StatementList>
+          </NetworkSource>
+          <ProgrammingLanguage>STL</ProgrammingLanguage>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="2A" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="2B" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="2C" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="2D" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text />
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+          <MultilingualText ID="2E" CompositionName="Title">
+            <ObjectList>
+              <MultilingualTextItem ID="2F" CompositionName="Items">
+                <AttributeList>
+                  <Culture>en-US</Culture>
+                  <Text>ERROR TREATMENT</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="30" CompositionName="Items">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>TRATAMIENTO DE ERRORES</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+              <MultilingualTextItem ID="31" CompositionName="Items">
+                <AttributeList>
+                  <Culture>fr-FR</Culture>
+                  <Text>TRAITEMENT DES ERREURS</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Blocks.CompileUnit>
+      <MultilingualText ID="32" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="33" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text>TABLKMOV</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="34" CompositionName="Items">
+            <AttributeList>
+              <Culture>es-ES</Culture>
+              <Text>TABLKMOV</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="35" CompositionName="Items">
+            <AttributeList>
+              <Culture>fr-FR</Culture>
+              <Text>TABLKMOV</Text>
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.FC>
+</Document>

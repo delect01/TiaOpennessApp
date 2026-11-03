@@ -1,0 +1,347 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Document>
+  <Engineering version="V21" />
+  <DocumentInfo>
+    <Created>2026-11-03T09:19:29.2014799Z</Created>
+    <ExportSetting>WithDefaults</ExportSetting>
+    <InstalledProducts>
+      <Product>
+        <DisplayName>Totally Integrated Automation Portal</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <Product>
+        <DisplayName>SINAMICS Startdrive Advanced</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>SINAMICS Startdrive G130, G150, S120, S150, G200, G210, G210C, G210X, G220, S200, S210, S220, Innomotics MVD</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </OptionPackage>
+      <OptionPackage>
+        <DisplayName>SINAMICS Startdrive G110M, G120, G120C, G120D, G120P, G115D</DisplayName>
+        <DisplayVersion>V21 Update 1</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>STEP 7 Professional</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <OptionPackage>
+        <DisplayName>STEP 7 Safety</DisplayName>
+        <DisplayVersion>V21</DisplayVersion>
+      </OptionPackage>
+      <OptionPackage>
+        <DisplayName>Tech WebApplication</DisplayName>
+        <DisplayVersion>V21</DisplayVersion>
+      </OptionPackage>
+      <Product>
+        <DisplayName>WinCC Basic/Comfort/Advanced</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+      <Product>
+        <DisplayName>WinCC Unified</DisplayName>
+        <DisplayVersion>V21 Update 3</DisplayVersion>
+      </Product>
+    </InstalledProducts>
+  </DocumentInfo>
+  <SW.Blocks.InstanceDB ID="0">
+    <AttributeList>
+      <AutoNumber>false</AutoNumber>
+      <DBAccessibleFromOPCUA>true</DBAccessibleFromOPCUA>
+      <DBAccessibleFromWebserver>true</DBAccessibleFromWebserver>
+      <HeaderAuthor />
+      <HeaderFamily />
+      <HeaderName />
+      <HeaderVersion>0.1</HeaderVersion>
+      <InstanceOfName>RB4_AUTO</InstanceOfName>
+      <InstanceOfType>FB</InstanceOfType>
+      <Interface>
+        <Sections xmlns="http://www.siemens.com/automation/Openness/SW/Interface/v5">
+          <Section Name="Input" />
+          <Section Name="Output" />
+          <Section Name="InOut" />
+          <Section Name="Static">
+            <Member Name="SEQUENCE_ID" Datatype="Int" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="NUM_ROW_Y" Datatype="Int" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="NUM_COL_X" Datatype="Int" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="FP_INC_ID_SEQUENCE" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="RECEIVER_FINISHED" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="FP_DEPO_DONE" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="RB1Y2_SINCR_PICK" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="RB1Y2_SINCR_DEPO" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="CNT_TRIGGER_MODULO" Datatype="Bool" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+            </Member>
+            <Member Name="HMI_RECIPE" Datatype="&quot;UDT_ROBOT_REC&quot;" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+              <Sections>
+                <Section Name="None">
+                  <Member Name="GEN" Datatype="Array[1..20] of Int" />
+                  <Member Name="UF" Datatype="Array[1..90] of Int" />
+                </Section>
+              </Sections>
+            </Member>
+            <Member Name="PDATA" Datatype="Struct" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+              </AttributeList>
+              <Member Name="IN" Datatype="&quot;UDT_ROBOT_IN&quot;">
+                <AttributeList>
+                  <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+                </AttributeList>
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="UO" Datatype="Array[1..32] of Bool" />
+                    <Member Name="DO" Datatype="Array[1..192] of Bool" />
+                    <Member Name="GO" Datatype="Array[1..50] of Int" />
+                  </Section>
+                </Sections>
+              </Member>
+              <Member Name="OUT" Datatype="&quot;UDT_ROBOT_OUT&quot;">
+                <AttributeList>
+                  <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                  <BooleanAttribute Name="SetPoint" SystemDefined="true">false</BooleanAttribute>
+                </AttributeList>
+                <Sections>
+                  <Section Name="None">
+                    <Member Name="UI" Datatype="Array[1..32] of Bool" />
+                    <Member Name="DI" Datatype="Array[1..192] of Bool" />
+                    <Member Name="GI" Datatype="Array[1..50] of Int" />
+                  </Section>
+                </Sections>
+              </Member>
+            </Member>
+            <Member Name="FP" Datatype="&quot;UDT_FPsFNs&quot;" Remanence="Retain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+              </AttributeList>
+              <Sections>
+                <Section Name="None">
+                  <Member Name="P0" Datatype="Bool" />
+                  <Member Name="P1" Datatype="Bool" />
+                  <Member Name="P2" Datatype="Bool" />
+                  <Member Name="P3" Datatype="Bool" />
+                  <Member Name="P4" Datatype="Bool" />
+                  <Member Name="P5" Datatype="Bool" />
+                  <Member Name="P6" Datatype="Bool" />
+                  <Member Name="P7" Datatype="Bool" />
+                  <Member Name="P8" Datatype="Bool" />
+                  <Member Name="P9" Datatype="Bool" />
+                  <Member Name="P10" Datatype="Bool" />
+                  <Member Name="P11" Datatype="Bool" />
+                  <Member Name="P12" Datatype="Bool" />
+                  <Member Name="P13" Datatype="Bool" />
+                  <Member Name="P14" Datatype="Bool" />
+                  <Member Name="P15" Datatype="Bool" />
+                  <Member Name="P16" Datatype="Bool" />
+                  <Member Name="P17" Datatype="Bool" />
+                  <Member Name="P18" Datatype="Bool" />
+                  <Member Name="P19" Datatype="Bool" />
+                  <Member Name="P20" Datatype="Bool" />
+                  <Member Name="P21" Datatype="Bool" />
+                  <Member Name="P22" Datatype="Bool" />
+                  <Member Name="P23" Datatype="Bool" />
+                  <Member Name="P24" Datatype="Bool" />
+                  <Member Name="P25" Datatype="Bool" />
+                  <Member Name="P26" Datatype="Bool" />
+                  <Member Name="P27" Datatype="Bool" />
+                  <Member Name="P28" Datatype="Bool" />
+                  <Member Name="P29" Datatype="Bool" />
+                  <Member Name="P30" Datatype="Bool" />
+                </Section>
+              </Sections>
+            </Member>
+            <Member Name="SEQ" Datatype="&quot;UDT_RB_SEQUENCE&quot;" Remanence="NonRetain" Accessibility="Public">
+              <AttributeList>
+                <BooleanAttribute Name="ExternalAccessible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalVisible" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="ExternalWritable" SystemDefined="true">true</BooleanAttribute>
+                <BooleanAttribute Name="SetPoint" SystemDefined="true">true</BooleanAttribute>
+              </AttributeList>
+              <Sections>
+                <Section Name="None">
+                  <Member Name="SequenceNum" Datatype="Int" />
+                  <Member Name="RowNum" Datatype="Int" />
+                  <Member Name="ColumnNum" Datatype="Int" />
+                  <Member Name="LevelNum" Datatype="Int" />
+                  <Member Name="i10" Datatype="Int" />
+                  <Member Name="i12" Datatype="Int" />
+                  <Member Name="i14" Datatype="Int" />
+                  <Member Name="i16" Datatype="Int" />
+                  <Member Name="i18" Datatype="Int" />
+                  <Member Name="i20" Datatype="Int" />
+                  <Member Name="DEF" Datatype="Array[1..60] of &quot;UDT_RB_SEQ_MODULE&quot;">
+                    <Sections>
+                      <Section Name="None">
+                        <Member Name="Id_Row" Datatype="Int" />
+                        <Member Name="Id_Column" Datatype="Int" />
+                        <Member Name="Id_Level" Datatype="Int" />
+                        <Member Name="Turn_PickUp" Datatype="Int" />
+                        <Member Name="Turn_Set" Datatype="Int" />
+                        <Member Name="SeesawMotion_in_X" Datatype="Int" />
+                        <Member Name="SeesawMotion_in_Y" Datatype="Int" />
+                        <Member Name="Change" Datatype="Bool" />
+                        <Member Name="GripperOpening" Datatype="Bool" />
+                        <Member Name="resBOOL_7" Datatype="Bool" />
+                        <Member Name="DefGripper" Datatype="Word" />
+                        <Member Name="resINT_1" Datatype="Int" />
+                        <Member Name="resINT_2" Datatype="Int" />
+                        <Member Name="resINT_3" Datatype="Int" />
+                      </Section>
+                    </Sections>
+                  </Member>
+                  <Member Name="CURRENT" Datatype="&quot;UDT_RB_SEQ_MODULE&quot;">
+                    <Sections>
+                      <Section Name="None">
+                        <Member Name="Id_Row" Datatype="Int" />
+                        <Member Name="Id_Column" Datatype="Int" />
+                        <Member Name="Id_Level" Datatype="Int" />
+                        <Member Name="Turn_PickUp" Datatype="Int" />
+                        <Member Name="Turn_Set" Datatype="Int" />
+                        <Member Name="SeesawMotion_in_X" Datatype="Int" />
+                        <Member Name="SeesawMotion_in_Y" Datatype="Int" />
+                        <Member Name="Change" Datatype="Bool" />
+                        <Member Name="GripperOpening" Datatype="Bool" />
+                        <Member Name="resBOOL_7" Datatype="Bool" />
+                        <Member Name="DefGripper" Datatype="Word" />
+                        <Member Name="resINT_1" Datatype="Int" />
+                        <Member Name="resINT_2" Datatype="Int" />
+                        <Member Name="resINT_3" Datatype="Int" />
+                      </Section>
+                    </Sections>
+                  </Member>
+                </Section>
+              </Sections>
+            </Member>
+          </Section>
+        </Sections>
+      </Interface>
+      <Name>RB4</Name>
+      <Namespace />
+      <Number>1907</Number>
+      <ProgrammingLanguage>DB</ProgrammingLanguage>
+    </AttributeList>
+    <ObjectList>
+      <MultilingualText ID="1" CompositionName="Comment">
+        <ObjectList>
+          <MultilingualTextItem ID="2" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="3" CompositionName="Items">
+            <AttributeList>
+              <Culture>es-ES</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="4" CompositionName="Items">
+            <AttributeList>
+              <Culture>fr-FR</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+      <MultilingualText ID="5" CompositionName="Title">
+        <ObjectList>
+          <MultilingualTextItem ID="6" CompositionName="Items">
+            <AttributeList>
+              <Culture>en-US</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="7" CompositionName="Items">
+            <AttributeList>
+              <Culture>es-ES</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+          <MultilingualTextItem ID="8" CompositionName="Items">
+            <AttributeList>
+              <Culture>fr-FR</Culture>
+              <Text />
+            </AttributeList>
+          </MultilingualTextItem>
+        </ObjectList>
+      </MultilingualText>
+    </ObjectList>
+  </SW.Blocks.InstanceDB>
+</Document>

@@ -196,8 +196,13 @@ Offline tool: `--diff-topology <expected.json> <actual.json>`.
 
 ## F10+ - Future work (out of this plan, same pipeline)
 
-- [ ] Blocks (`PlcBlockComposition.CreateFrom(...)`).
-- [ ] DBs.
+- [ ] Blocks + DBs — **implemented, pending round-trip verification** (2026-11-02):
+      SimaticML export (`BlocksExportService`, `--export-blocks`, `Blocks.csv` + `blocks/`)
+      and import into a template clone (`BlocksGenerationService`, `PlcBlockComposition.Import`,
+      dependency order GlobalDB→FC→FB→InstanceDB→OB, compile, save only if clean;
+      `--generate-blocks`). Know-how protected blocks are skipped. Included in
+      `--roundtrip-test` (export → import → re-inspect, `Blocks` summary line); not yet part
+      of `--generate-project`.
 - [x] Tag tables (`PlcTagComposition.Create`; see `TagsGenerationService` + `IoTags.csv`, done 2026-09-21).
 - [ ] HMI.
 

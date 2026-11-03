@@ -177,4 +177,6 @@ See [`ROADMAP.md`](./ROADMAP.md) for the phased plan:
   + dry-run, and device/module/subnet/interface **generation** in TIA — **all complete and approved**.
 - Beyond the plan (same pipeline): manual I/Q **hardware address map** reproduction and **I/O tag
   table** generation — complete and verified via the headless round-trip.
-- F10+: PLC blocks, DBs and HMI (next steps, same pipeline).
+- F10+: PLC blocks and DBs — export to SimaticML + `Blocks.csv` (`--export-blocks`) and import
+  into a template clone (`--generate-blocks`) implemented, pending round-trip verification.
+  HMI is still pending. See [`CLI.md`](./CLI.md) §21–23.

@@ -1,4 +1,4 @@
-..# TiaOpennessApp — Comandes CLI
+# TiaOpennessApp — Comandes CLI
 
 Document de referència de totes les comandes CLI de `TiaOpennessApp`.
 
@@ -43,6 +43,7 @@ dotnet run -- <command> [arguments...]
 | `--export-docs` | Genera els CSV de documents des d'un projecte o exportació |
 | `--export-blocks` | Exporta els blocs de programa (OB/FB/FC/DB) a XML SimaticML + `Blocks.csv` |
 | `--generate-blocks` | Importa els blocs de `Blocks.csv` en un clon d'un projecte plantilla |
+| `--dump-blocks` | Mostra l'inventari de blocs de programa d'un projecte (diagnòstic) |
 | `--dump-subnets` | Mostra les xarxes (subnets) d'un projecte |
 | `--dump-interfaces` | Mostra les interfícies de xarxa d'un projecte |
 | `--gsd-cax-poc` | PoC: exporta un dispositiu GSD a AML i l'importa en un sandbox (via CAx) |
@@ -267,6 +268,16 @@ TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName>
 comparativa de topologia (`TopologyDiff`), re-exportació i comparativa de tags
 (`Tags`) i del mapa d'adreces (`HwAddr`), i el resultat final `PASS`/`FAIL`
 (exit code `0`/`1`).
+
+**Blocs de programa**: al PAS 1-3 s'exporten també els blocs (`workDir\blocks\`,
+que es buida abans, + `Blocks.csv`; els protegits se salten). Després del
+pipeline (PAS 4b) s'importen al projecte generat amb el mateix servei de
+`--generate-blocks`, es compila i es desa sempre. Al PAS 5 es re-inspeccionen i
+es comparen per dispositiu/grup/nom/tipus/número/llenguatge (línia `Blocks` del
+resum). Un bloc **fallit** o **no reproduït** fa `FAIL`; els errors de
+compilació es mostren però no fan fallar el test (poden venir dels dispositius
+GSD que no s'han pogut crear). Només es comparen les metadades, no el
+contingut XML.
 
 **Nota**: connecta a TIA Portal en mode headless i fa diverses obertures/desa
 de projectes.
@@ -558,6 +569,106 @@ CSVs**.
 
 ---
 
+## 21. `--export-blocks`
+
+Exporta els **blocs de programa** (OB, FB, FC, DB globals i d'instància) de tots
+els PLC del projecte a fitxers XML SimaticML i escriu el manifest `Blocks.csv` al
+directori de documents.
+
+```
+TiaOpennessApp --export-blocks <projectPath> <outDocsDir> [deviceFilter]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<projectPath>` | Projecte `.ap21` d'origen (s'obre en mode headless) |
+| `<outDocsDir>` | Directori de documents on es crea `Blocks.csv` i la carpeta `blocks/` |
+| `[deviceFilter]` | Limita l'export als dispositius PLC que coincideixin amb aquest nom |
+
+**Estructura de sortida**:
+
+- `Blocks.csv`: una fila per bloc exportat, amb les columnes `Device, GroupPath,
+  Kind, Name, Namespace, Number, AutoNumber, BlockType, ProgrammingLanguage,
+  MemoryLayout, Title, Comment, SourceFile`.
+- `blocks/<Device>/<grup>/<subgrup>/<Nom>.xml`: el codi complet del bloc
+  (`ExportOptions.WithDefaults`). `SourceFile` hi apunta amb una ruta relativa
+  que sempre fa servir `/`. Els noms es netegen de caràcters no vàlids i, si dos
+  blocs coincideixen, s'afegeix un sufix numèric.
+- `GroupPath` és la ruta del grup d'usuari separada per `/`; buit = arrel.
+
+**Regles**:
+
+- Els blocs **know-how protected** no es poden exportar: es compten com a
+  `skipped` i es llisten com a avís.
+- Un error en un bloc no atura l'export: s'esborra el fitxer parcial, s'anota un
+  `BLOCK WARN` i es continua amb la resta.
+
+**Sortida**: `Blocks exported: N, skipped: N, errors: N`, els avisos i el camí del
+manifest.
+
+---
+
+## 22. `--generate-blocks`
+
+Clona un **projecte plantilla** (que ja conté el maquinari: PLC, mòduls, xarxes)
+i hi importa els blocs de `Blocks.csv`. Està pensat per encadenar-se amb
+`--export-blocks` o amb un projecte generat per `--generate-project`.
+
+```
+TiaOpennessApp --generate-blocks <templateProject> <docsDir> <targetDir> <projectName> [--override] [--no-compile]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `<templateProject>` | Projecte `.ap21` plantilla. **No es modifica**: se'n desa una còpia amb `SaveAs` |
+| `<docsDir>` | Directori de documents amb `Blocks.csv` i la carpeta `blocks/` |
+| `<targetDir>` | Carpeta pare del projecte nou |
+| `<projectName>` | Nom del projecte nou; es crea `<targetDir>\<projectName>` |
+| `--override` | Reimporta (`ImportOptions.Override`) els blocs que ja existeixen al template. Sense aquesta opció se salten (`SKIPPED`) |
+| `--no-compile` | No compila el software PLC després d'importar |
+
+**Flux**:
+
+1. Llegeix i valida els documents de `<docsDir>` (vegeu els requisits més avall).
+2. Comprova que `<targetDir>\<projectName>` no existeix o és buida.
+3. Obre la plantilla, la desa com a `<targetDir>\<projectName>` i obre el clon.
+4. Importa els blocs en ordre de dependències: `GlobalDB` → `FC` → `FB` →
+   `InstanceDB` → `OB` → la resta. Els grups (`GroupPath`) es creen si cal.
+   Si un import falla, es reintenta una vegada amb `SkipInactiveCultures`.
+5. Compila cada PLC afectat (llevat de `--no-compile`).
+6. Desa el projecte **només** si no hi ha cap bloc `FAILED` ni errors de
+   compilació. Si n'hi ha, el clon queda al disc però sense els blocs desats.
+
+**Requisits i limitacions**:
+
+- Només cal `Blocks.csv` + `blocks/`: n'hi ha prou amb un directori creat per
+  `--export-blocks`. `Devices.csv`, `Modules.csv`, `Subnets.csv` i
+  `Interfaces.csv` són opcionals (el maquinari ja és al template); si falten
+  surt un avís. Si hi són, es validen com sempre.
+- El dispositiu de cada bloc ha d'existir al template i tenir software PLC. Si
+  no apareix a `Devices.csv` només surt un avís de validació.
+- `GroupPath` no pot començar ni acabar amb `/` ni contenir segments `.`/`..`.
+- `Kind` diferent de `Block` encara no s'admet (avís).
+- La plantilla no pot estar oberta a la UI de TIA Portal.
+
+**Sortida**: una línia per bloc (`IMPORTED`, `OVERRIDDEN`, `SKIPPED`, `FAILED`),
+el resultat de compilació (`COMPILE state=... errors=... warnings=...`) i el camí
+del projecte desat.
+
+---
+
+## 23. `--dump-blocks`
+
+Diagnòstic: obre un projecte i llista tots els blocs de programa (dispositiu,
+grup, nom, número, tipus, llenguatge, layout, protecció, títol i comentari)
+sense escriure cap fitxer.
+
+```
+TiaOpennessApp --dump-blocks <projectPath> [deviceFilter]
+```
+
+---
+
 ## Valors per defecte (appsettings.json)
 
 Les comandes que accepten `[catalogCsv]` opcional el resolen així:
@@ -575,6 +686,7 @@ de `<docsDir>` els fitxers amb noms fixos:
 - `Interfaces.csv`
 - `IoTags.csv` (opcional)
 - `ModuleAddresses.csv` (opcional)
+- `Blocks.csv` (opcional; només el fan servir `--generate-blocks` i la validació)
 
 El directori de documents per defecte en mode de menú és el valor de
 `Import:DocsPath` (`imports`).
