@@ -595,6 +595,13 @@ TiaOpennessApp --export-blocks <projectPath> <outDocsDir> [deviceFilter]
   que sempre fa servir `/`. Els noms es netegen de caràcters no vàlids i, si dos
   blocs coincideixen, s'afegeix un sufix numèric.
 - `GroupPath` és la ruta del grup d'usuari separada per `/`; buit = arrel.
+- **Tipus de dades PLC (UDT)**: s'exporten a `types/<Device>/<grup>/<Nom>.xml`
+  i surten primer a `Blocks.csv` amb `Kind=Type` i `BlockType=UDT`. Els blocs en
+  depenen, i sense ells la importació dels FB/DB que els fan servir falla.
+- **Taules de variables PLC** (tots els tags, no només I/O, i les constants
+  d'usuari): s'exporten a `tags/<Device>/<grup>/<Taula>.xml` amb
+  `Kind=TagTable`. El codi fa servir tags de memòria (`%M`), constants, etc.,
+  i sense ells hi ha errors d'importació (p. ex. `OPEN DB [MW12]`) i de compilació.
 
 **Regles**:
 
@@ -632,12 +639,20 @@ TiaOpennessApp --generate-blocks <templateProject> <docsDir> <targetDir> <projec
 1. Llegeix i valida els documents de `<docsDir>` (vegeu els requisits més avall).
 2. Comprova que `<targetDir>\<projectName>` no existeix o és buida.
 3. Obre la plantilla, la desa com a `<targetDir>\<projectName>` i obre el clon.
-4. Importa els blocs en ordre de dependències: `GlobalDB` → `FC` → `FB` →
-   `InstanceDB` → `OB` → la resta. Els grups (`GroupPath`) es creen si cal.
-   Si un import falla, es reintenta una vegada amb `SkipInactiveCultures`.
+4. Importa primer els UDT (`Kind=Type`), després les taules de variables
+   (`Kind=TagTable`; **sempre se sobreescriuen**, perquè les del template només
+   tenen els I/O tags generats) i després els blocs (`GlobalDB` → `FC` → `FB` →
+   `InstanceDB` → `OB` → la resta). Els blocs de seguretat (`F_FBD`, `F_DB`...)
+   se salten: els genera TIA amb el grup de runtime F. Els grups es creen si cal. Cada
+   fase es fa **per passades**: el que falla es torna a provar a la passada
+   següent, fins que una passada no n'importa cap més (`Passada N: X importats,
+   Y pendents`). Així es resolen les dependències UDT→UDT, FB→FB
+   (multiinstància) i InstanceDB→FB sense dependre de l'ordre de `Blocks.csv`.
+   Cada intent es reintenta una vegada amb `SkipInactiveCultures`.
 5. Compila cada PLC afectat (llevat de `--no-compile`).
-6. Desa el projecte **només** si no hi ha cap bloc `FAILED` ni errors de
-   compilació. Si n'hi ha, el clon queda al disc però sense els blocs desats.
+6. Desa **sempre** el clon (el template no es toca), indicant `OK` o
+   `AMB INCIDÈNCIES (N fallits, M errors de compilació)`, perquè es pugui obrir
+   a TIA i revisar-ho.
 
 **Requisits i limitacions**:
 

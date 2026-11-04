@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Siemens.Engineering;
+using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Tags;
+using Siemens.Engineering.SW.Types;
 using TiaOpennessApp.Models.Generation;
 
 namespace TiaOpennessApp.Services
@@ -122,7 +125,7 @@ namespace TiaOpennessApp.Services
                 throw new InvalidOperationException($"Block '{blockName}' not found in device '{deviceName}'.");
 
             path.Directory?.Create();
-            block.Export(path, ExportOptions.WithDefaults);
+            ExportCompilingIfInconsistent(block, path);
             return CreateItem(device.Name, groupPath, block);
         }
 
@@ -138,6 +141,14 @@ namespace TiaOpennessApp.Services
             report.Errors.AddRange(inspection.Errors);
 
             var usedRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Primer els tipus de dades PLC (UDT): els blocs en depenen i s'han
+            // d'importar abans. Es registren a Blocks.csv amb Kind=Type.
+            ExportTypes(docsDir, deviceFilter, report, usedRelativePaths);
+
+            // Després les taules de variables PLC (tots els tags + constants d'usuari):
+            // el codi fa servir tags de memòria/constants que no són a IoTags.csv.
+            ExportTagTables(docsDir, deviceFilter, report, usedRelativePaths);
 
             foreach (BlockInventoryItem item in inspection.Blocks)
             {
@@ -191,6 +202,172 @@ namespace TiaOpennessApp.Services
             return report;
         }
 
+        private void ExportTypes(
+            string docsDir,
+            string? deviceFilter,
+            BlockDocsExportReport report,
+            HashSet<string> usedRelativePaths)
+        {
+            foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(_project))
+            {
+                if (!string.IsNullOrWhiteSpace(deviceFilter)
+                    && device.Name.IndexOf(deviceFilter!, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                PlcSoftware? software;
+                try { software = FindPlcSoftware(device); }
+                catch { continue; }
+                if (software == null)
+                    continue;
+
+                try
+                {
+                    ExportTypeGroup(software.TypeGroup, string.Empty, device.Name, docsDir, report, usedRelativePaths);
+                }
+                catch (Exception ex)
+                {
+                    report.Errors.Add($"{device.Name} (UDT): {ex.Message}");
+                }
+            }
+        }
+
+        private static void ExportTypeGroup(
+            PlcTypeGroup group,
+            string groupPath,
+            string deviceName,
+            string docsDir,
+            BlockDocsExportReport report,
+            HashSet<string> usedRelativePaths)
+        {
+            foreach (PlcType type in group.Types)
+            {
+                string name = string.Empty;
+                try { name = type.Name; } catch { }
+                string label = $"{deviceName}/{(groupPath.Length == 0 ? "(root)" : groupPath)}/{name} (UDT)";
+
+                try
+                {
+                    if (type.IsKnowHowProtected)
+                    {
+                        report.Skipped++;
+                        report.Errors.Add($"{label}: tipus protegit (know-how protected); no s'exporta.");
+                        continue;
+                    }
+
+                    string sourceFile = BuildSourceFile("types", deviceName, groupPath, name, usedRelativePaths);
+                    string fullPath = Path.Combine(docsDir, sourceFile.Replace('/', Path.DirectorySeparatorChar));
+                    var file = new FileInfo(fullPath);
+                    file.Directory?.Create();
+                    if (file.Exists)
+                        file.Delete();
+                    ExportCompilingIfInconsistent(type, file);
+
+                    report.Blocks.Add(new BlockSpec
+                    {
+                        Device = deviceName,
+                        GroupPath = groupPath,
+                        Kind = "Type",
+                        Name = name,
+                        Namespace = type.Namespace ?? string.Empty,
+                        BlockType = "UDT",
+                        Title = GetText(type.Title),
+                        Comment = GetText(type.Comment),
+                        SourceFile = sourceFile,
+                    });
+                    report.Exported++;
+                }
+                catch (Exception ex)
+                {
+                    report.Errors.Add($"{label}: {ex.Message}");
+                }
+            }
+
+            foreach (PlcTypeUserGroup child in group.Groups)
+            {
+                string childPath = groupPath.Length == 0 ? child.Name : groupPath + "/" + child.Name;
+                ExportTypeGroup(child, childPath, deviceName, docsDir, report, usedRelativePaths);
+            }
+        }
+
+        private void ExportTagTables(
+            string docsDir,
+            string? deviceFilter,
+            BlockDocsExportReport report,
+            HashSet<string> usedRelativePaths)
+        {
+            foreach (Device device in DevicesAndNetworksService.EnumerateAllDevices(_project))
+            {
+                if (!string.IsNullOrWhiteSpace(deviceFilter)
+                    && device.Name.IndexOf(deviceFilter!, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                PlcSoftware? software;
+                try { software = FindPlcSoftware(device); }
+                catch { continue; }
+                if (software == null)
+                    continue;
+
+                try
+                {
+                    ExportTagTableGroup(software.TagTableGroup, string.Empty, device.Name, docsDir, report, usedRelativePaths);
+                }
+                catch (Exception ex)
+                {
+                    report.Errors.Add($"{device.Name} (TagTable): {ex.Message}");
+                }
+            }
+        }
+
+        private static void ExportTagTableGroup(
+            PlcTagTableGroup group,
+            string groupPath,
+            string deviceName,
+            string docsDir,
+            BlockDocsExportReport report,
+            HashSet<string> usedRelativePaths)
+        {
+            foreach (PlcTagTable table in group.TagTables)
+            {
+                string name = string.Empty;
+                try { name = table.Name; } catch { }
+                string label = $"{deviceName}/{(groupPath.Length == 0 ? "(root)" : groupPath)}/{name} (TagTable)";
+
+                try
+                {
+                    string sourceFile = BuildSourceFile("tags", deviceName, groupPath, name, usedRelativePaths);
+                    string fullPath = Path.Combine(docsDir, sourceFile.Replace('/', Path.DirectorySeparatorChar));
+                    var file = new FileInfo(fullPath);
+                    file.Directory?.Create();
+                    if (file.Exists)
+                        file.Delete();
+                    table.Export(file, ExportOptions.WithDefaults);
+
+                    report.Blocks.Add(new BlockSpec
+                    {
+                        Device = deviceName,
+                        GroupPath = groupPath,
+                        Kind = "TagTable",
+                        Name = name,
+                        BlockType = "TagTable",
+                        Title = table.IsDefault ? "(default)" : string.Empty,
+                        Comment = $"{table.Tags.Count} tags, {table.UserConstants.Count} constants",
+                        SourceFile = sourceFile,
+                    });
+                    report.Exported++;
+                }
+                catch (Exception ex)
+                {
+                    report.Errors.Add($"{label}: {ex.Message}");
+                }
+            }
+
+            foreach (PlcTagTableUserGroup child in group.Groups)
+            {
+                string childPath = groupPath.Length == 0 ? child.Name : groupPath + "/" + child.Name;
+                ExportTagTableGroup(child, childPath, deviceName, docsDir, report, usedRelativePaths);
+            }
+        }
+
         private void ExportBlock(BlockInventoryItem item, FileInfo path)
         {
             Device? device = FindDevice(item.DeviceName)
@@ -208,7 +385,59 @@ namespace TiaOpennessApp.Services
                 throw new InvalidOperationException($"Block '{item.Name}' not found in group '{item.GroupPath}'.");
 
             path.Directory?.Create();
-            block.Export(path, ExportOptions.WithDefaults);
+            if (path.Exists)
+                path.Delete();
+            ExportCompilingIfInconsistent(block, path);
+        }
+
+        /// <summary>
+        /// TIA no exporta blocs/UDT inconsistents. Si ho són, es compilen (només
+        /// aquell objecte) i es torna a provar; si la compilació no ho resol,
+        /// l'error indica quants errors de compilació té.
+        /// </summary>
+        private static void ExportCompilingIfInconsistent(PlcBlock block, FileInfo path) =>
+            ExportCompilingIfInconsistent(block, () => block.IsConsistent, () => block.Export(path, ExportOptions.WithDefaults));
+
+        private static void ExportCompilingIfInconsistent(PlcType type, FileInfo path) =>
+            ExportCompilingIfInconsistent(type, () => type.IsConsistent, () => type.Export(path, ExportOptions.WithDefaults));
+
+        private static void ExportCompilingIfInconsistent(
+            IEngineeringServiceProvider target, Func<bool> isConsistent, Action export)
+        {
+            bool consistent;
+            try { consistent = isConsistent(); } catch { consistent = true; }
+
+            if (consistent)
+            {
+                try
+                {
+                    export();
+                    return;
+                }
+                catch (Exception ex) when (ex.Message.IndexOf("nconsistent", StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Inconsistent tot i que IsConsistent deia que no: compila i reintenta.
+                }
+            }
+
+            ICompilable? compilable = target.GetService<ICompilable>();
+            if (compilable == null)
+                throw new InvalidOperationException("Inconsistent i sense servei de compilació; compila'l a TIA i torna a exportar.");
+
+            CompilerResult result = compilable.Compile();
+            try
+            {
+                export();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    $"Inconsistent; s'ha compilat (state={result.State}, errors={result.ErrorCount}) però no s'ha pogut exportar: {ex.Message}");
+            }
         }
 
         public Device? FindDevice(string deviceName)
@@ -329,20 +558,30 @@ namespace TiaOpennessApp.Services
             BlockInventoryItem item,
             HashSet<string> usedRelativePaths)
         {
+            return BuildSourceFile("blocks", item.DeviceName, item.GroupPath, item.Name, usedRelativePaths);
+        }
+
+        private static string BuildSourceFile(
+            string rootFolder,
+            string deviceName,
+            string? groupPath,
+            string name,
+            HashSet<string> usedRelativePaths)
+        {
             var segments = new List<string>
             {
-                "blocks",
-                SanitizePathSegment(item.DeviceName),
+                rootFolder,
+                SanitizePathSegment(deviceName),
             };
 
-            foreach (string segment in (item.GroupPath ?? string.Empty)
+            foreach (string segment in (groupPath ?? string.Empty)
                          .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 segments.Add(SanitizePathSegment(segment));
             }
 
             string directory = string.Join("/", segments);
-            string baseName = SanitizePathSegment(item.Name);
+            string baseName = SanitizePathSegment(name);
             string relative = $"{directory}/{baseName}.xml";
             int suffix = 2;
 

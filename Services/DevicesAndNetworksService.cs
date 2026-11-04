@@ -83,6 +83,10 @@ namespace TiaOpennessApp.Services
                             PositionNumber = item.PositionNumber,
                         });
                     }
+                    else
+                    {
+                        info.ItemsWithoutOrderNumber.Add($"{item.Name} [{SafeTypeIdentifier(item)}]");
+                    }
                 }
 
                 info.DeviceOrderNumber = GetDeviceOrderNumber(device, info.Modules);

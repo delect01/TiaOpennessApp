@@ -23,6 +23,9 @@ namespace TiaOpennessApp.Services
         /// <summary>True when a project is currently open in this connection (opened by us or reused).</summary>
         public bool HasOpenProject => _project != null;
 
+        /// <summary>True when a TIA Portal instance is already connected/attached.</summary>
+        public bool IsConnected => _portal != null;
+
         public TiaPortal Portal => _portal ?? throw new InvalidOperationException("Portal not connected.");
         public Project Project => _project ?? throw new InvalidOperationException("Project not opened.");
 
@@ -80,6 +83,18 @@ namespace TiaOpennessApp.Services
             throw new InvalidOperationException("No running TIA Portal instance with user interface found.");
         }
 
+        /// <summary>
+        /// Path of the project, or null if there is none or TIA has already
+        /// disposed it (closed from another flow or from the GUI).
+        /// </summary>
+        private static string? TryGetProjectPath(Project? project)
+        {
+            if (project == null)
+                return null;
+            try { return project.Path?.FullName; }
+            catch { return null; }
+        }
+
         public void OpenProject(string projectPath)
         {
             if (_portal == null)
@@ -100,9 +115,18 @@ namespace TiaOpennessApp.Services
             if (!File.Exists(fullPath))
                 throw new FileNotFoundException($"Project file not found: {projectPath}");
 
+            // The tracked project may have been closed elsewhere (TIA disposes the object):
+            // forget it instead of touching it.
+            string? currentPath = TryGetProjectPath(_project);
+            if (_project != null && currentPath == null)
+            {
+                _project = null;
+                OpenedProject = false;
+            }
+
             // If the requested project is already open (by us or by the GUI), reuse it.
-            if (_project != null && _project.Path != null &&
-                string.Equals(_project.Path.FullName, fullPath, StringComparison.OrdinalIgnoreCase))
+            if (currentPath != null &&
+                string.Equals(currentPath, fullPath, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }

@@ -382,17 +382,32 @@ namespace TiaOpennessApp.Services
                     .Any(segment => segment == "." || segment == ".."))
                     Error("Blocks", label, "GroupPath no pot contenir segments '.' o '..'.");
 
+                bool isType = string.Equals(block.Kind, "Type", StringComparison.OrdinalIgnoreCase);
+                bool isTagTable = string.Equals(block.Kind, "TagTable", StringComparison.OrdinalIgnoreCase);
                 if (!string.IsNullOrWhiteSpace(block.Kind)
+                    && !isType
+                    && !isTagTable
                     && !block.Kind.Equals("Block", StringComparison.OrdinalIgnoreCase))
-                    Warning("Blocks", label, $"Kind '{block.Kind}' encara no és compatible; per ara només s'importen blocs.");
+                    Warning("Blocks", label, $"Kind '{block.Kind}' no és compatible; només 'Block', 'Type' (UDT) i 'TagTable'.");
 
-                if (block.BlockType.Length > 0 && !allowedTypes.Contains(block.BlockType))
+                if (isType)
+                {
+                    if (block.BlockType.Length > 0 && !block.BlockType.Equals("UDT", StringComparison.OrdinalIgnoreCase))
+                        Error("Blocks", label, $"Un Kind=Type ha de tenir BlockType 'UDT' (o buit), no '{block.BlockType}'.");
+                }
+                else if (isTagTable)
+                {
+                    if (block.BlockType.Length > 0 && !block.BlockType.Equals("TagTable", StringComparison.OrdinalIgnoreCase))
+                        Error("Blocks", label, $"Un Kind=TagTable ha de tenir BlockType 'TagTable' (o buit), no '{block.BlockType}'.");
+                }
+                else if (block.BlockType.Length > 0 && !allowedTypes.Contains(block.BlockType))
                     Error("Blocks", label, $"BlockType '{block.BlockType}' no reconegut.");
 
                 if (block.Number.HasValue && block.Number.Value < 0)
                     Error("Blocks", label, "Number no pot ser negatiu.");
 
-                string key = block.Device + "\u0001" + normalizedGroup + "\u0001" + block.Name;
+                string kindKey = isType ? "T" : isTagTable ? "G" : "B";
+                string key = kindKey + "\u0001" + block.Device + "\u0001" + normalizedGroup + "\u0001" + block.Name;
                 if (!blockKeys.Add(key))
                     Error("Blocks", label, "Bloc duplicat (mateix dispositiu, grup i nom).");
 

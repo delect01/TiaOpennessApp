@@ -9,6 +9,13 @@ namespace TiaOpennessApp.Models
         public string DeviceOrderNumber { get; set; } = string.Empty;
         public List<NetworkInterfaceInfo> Interfaces { get; set; } = new List<NetworkInterfaceInfo>();
         public List<NetworkModuleInfo> Modules { get; set; } = new List<NetworkModuleInfo>();
+
+        /// <summary>
+        /// Diagnòstic: elements sense OrderNumber ("Nom [TypeIdentifier]"), que no
+        /// entren a <see cref="Modules"/>. No es serialitza.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public List<string> ItemsWithoutOrderNumber { get; set; } = new List<string>();
     }
 
     public class NetworkInterfaceInfo

@@ -1113,21 +1113,36 @@ namespace TiaOpennessApp
         {
             Console.WriteLine("\n═══ GENERATE BLOCKS INTO TEMPLATE CLONE ═══");
 
-            string docsDir = ResolveDocsDirectory();
-            if (!Directory.Exists(docsDir))
+            // Per defecte, el directori d'import si existeix; si no, el d'export
+            // (on deixa els docs l'opció "Export Project to CSV files").
+            string defaultDocs = ResolveDocsDirectory();
+            string? exportDocs = AppConfig["Export:DocsPath"];
+            if (!Directory.Exists(defaultDocs) && !string.IsNullOrWhiteSpace(exportDocs) && Directory.Exists(exportDocs))
+                defaultDocs = exportDocs!;
+
+            string docsDir = ReadRequiredValue("Docs directory (Blocks.csv + blocks/types/tags)", Path.GetFullPath(defaultDocs));
+            if (!File.Exists(Path.Combine(docsDir, "Blocks.csv")))
             {
-                Console.WriteLine($"Abortat: no existeix el directori de documents: {docsDir}");
+                Console.WriteLine($"Abortat: no hi ha Blocks.csv a: {docsDir}");
                 return;
             }
 
-            string templatePath = ReadAndRememberValue(
-                "Template project path (.ap21)",
-                "Import:TemplateProjectPath");
-            if (!File.Exists(templatePath))
+            string configuredTemplate = AppConfig["Import:TemplateProjectPath"] ?? string.Empty;
+            string templateInput = ReadRequiredValue(
+                "Template project (.ap21 path, project folder or project name)",
+                configuredTemplate);
+            string? templatePath = ResolveProjectFile(templateInput);
+            if (templatePath == null)
             {
-                Console.WriteLine($"Abortat: no existeix el projecte plantilla: {templatePath}");
+                Console.WriteLine($"Abortat: no s'ha trobat cap projecte plantilla per a '{templateInput}'.");
+                Console.WriteLine("  Indica el camí complet del .ap21, la carpeta del projecte o el nom d'un " +
+                                  $"projecte dins de '{AppConfig["TiaPortal:ProjectPath"]}'.");
                 return;
             }
+
+            Console.WriteLine($"Plantilla: {templatePath}");
+            if (!string.Equals(templatePath, configuredTemplate, StringComparison.OrdinalIgnoreCase))
+                PersistAppSettings(("Import:TemplateProjectPath", templatePath));
 
             string targetDirectory = ReadAndRememberValue(
                 "Destination directory",
@@ -1136,10 +1151,9 @@ namespace TiaOpennessApp
                 "Project name",
                 "TiaPortal:NewProjectName");
 
-            Console.Write("Override existing blocks in the same group? (y/N): ");
-            string? answer = Console.ReadLine()?.Trim();
-            bool overrideExisting = answer != null &&
-                answer.Equals("y", StringComparison.OrdinalIgnoreCase);
+            Console.Write("Override existing blocks in the same group? (y/s = yes, N): ");
+            string? answer = Console.ReadLine()?.Trim().ToLowerInvariant();
+            bool overrideExisting = answer is "y" or "yes" or "s" or "si" or "sí";
 
             RunBlocksGeneration(
                 connection,
@@ -1845,6 +1859,9 @@ namespace TiaOpennessApp
                 StringComparer.OrdinalIgnoreCase);
 
             return expected
+                .Where(e => string.IsNullOrWhiteSpace(e.Kind)
+                            || string.Equals(e.Kind, "Block", StringComparison.OrdinalIgnoreCase))
+                .Where(e => !BlocksGenerationService.IsSafety(e))
                 .Select(e => Key(e.Device, e.GroupPath, e.Name, e.BlockType, e.Number, e.ProgrammingLanguage))
                 .Where(k => !actualSet.Contains(k))
                 .ToList();
@@ -2205,7 +2222,9 @@ namespace TiaOpennessApp
 
             try
             {
-                connection.ConnectHeadless();
+                // Des del menú la connexió ja existeix: no s'obre una segona instància de TIA.
+                if (!connection.IsConnected)
+                    connection.ConnectHeadless();
                 connection.OpenProject(templatePath);
             }
             catch (Exception ex)
@@ -2258,17 +2277,17 @@ namespace TiaOpennessApp
 
             PrintBlocksGenerationReport(report);
 
+            // Es desa sempre: és un clon (el template no es toca) i així es pot
+            // obrir a TIA per revisar els blocs fallits o els errors de compilació.
             bool compileOk = report.CompileResult == null || report.CompileResult.ErrorCount == 0;
-            if (report.FailedCount > 0 || !compileOk)
-            {
-                Console.WriteLine("El projecte NO es desa perquè hi ha blocs fallits o errors de compilació.");
-                return;
-            }
-
             try
             {
                 connection.Project.Save();
-                Console.WriteLine($"Projecte desat: {connection.Project.Path.FullName}");
+                string status = report.FailedCount == 0 && compileOk
+                    ? "OK"
+                    : $"AMB INCIDÈNCIES ({report.FailedCount} fallits, " +
+                      $"{report.CompileResult?.ErrorCount ?? 0} errors de compilació)";
+                Console.WriteLine($"Projecte desat {status}: {connection.Project.Path.FullName}");
             }
             catch (Exception ex)
             {
@@ -2283,7 +2302,8 @@ namespace TiaOpennessApp
                 string group = string.IsNullOrWhiteSpace(item.GroupPath) ? "(root)" : item.GroupPath;
                 string status = item.Action.ToString().ToUpperInvariant();
                 string error = item.Error == null ? string.Empty : $" ERROR={item.Error}";
-                Console.WriteLine($"  {status,-11} {item.Device}/{group}/{item.Name} ({item.BlockType}){error}");
+                string note = item.Note == null ? string.Empty : $" ({item.Note})";
+                Console.WriteLine($"  {status,-11} {item.Device}/{group}/{item.Name} ({item.BlockType}){note}{error}");
             }
 
             if (report.CompileResult != null)
@@ -2291,6 +2311,7 @@ namespace TiaOpennessApp
                 Console.WriteLine(
                     $"  COMPILE state={report.CompileResult.State} " +
                     $"errors={report.CompileResult.ErrorCount} warnings={report.CompileResult.WarningCount}");
+                PrintCompileErrors(report.CompileResult.Messages, string.Empty, 0);
             }
 
             foreach (string error in report.Errors)
@@ -2299,6 +2320,45 @@ namespace TiaOpennessApp
             Console.WriteLine(
                 $"Blocks: {report.ImportedCount} imported, {report.OverriddenCount} overridden, " +
                 $"{report.SkippedCount} skipped, {report.FailedCount} failed.");
+        }
+
+        /// <summary>
+        /// Imprimeix els missatges d'error del compilador (fulles amb estat Error),
+        /// amb el camí de l'objecte que els conté. Limitat per no inundar la consola.
+        /// </summary>
+        private static int PrintCompileErrors(CompilerResultMessageComposition messages, string path, int printed)
+        {
+            const int max = 60;
+            foreach (CompilerResultMessage message in messages)
+            {
+                if (printed >= max)
+                    return printed;
+                if (message.State != CompilerResultState.Error && message.ErrorCount == 0)
+                    continue;
+
+                if (message.Messages.Count == 0)
+                {
+                    if (message.State == CompilerResultState.Error)
+                    {
+                        // El pare és el bloc; la fulla sol ser "Network N".
+                        string where = string.Join(" > ",
+                            new[] { path, message.Path }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                        if (string.IsNullOrWhiteSpace(message.Path) && string.IsNullOrWhiteSpace(path)
+                            && message.Description.StartsWith("Compiling finished", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        Console.WriteLine($"    COMPILE ERROR [{where}] {message.Description}");
+                        printed++;
+                        if (printed == max)
+                            Console.WriteLine($"    ... (més errors; obre el projecte a TIA per veure'ls tots)");
+                    }
+                }
+                else
+                {
+                    string here = string.IsNullOrWhiteSpace(message.Path) ? path : message.Path;
+                    printed = PrintCompileErrors(message.Messages, here, printed);
+                }
+            }
+            return printed;
         }
 
         private sealed class PocExportedBlock
@@ -3043,7 +3103,7 @@ namespace TiaOpennessApp
             Console.WriteLine("│  1. Project Info                   │");
             Console.WriteLine("│  2. Network Devices Tree           │");
             Console.WriteLine("│  3. Export Project to CSV files    │");
-            Console.WriteLine("│  4. Generate Catalog               │");
+            Console.WriteLine("│  4. Generate Hardware Catalog      │");
             Console.WriteLine("│  0. Return                         │");
             Console.WriteLine("└────────────────────────────────────┘");
             Console.Write("Select: ");
@@ -3085,8 +3145,15 @@ namespace TiaOpennessApp
             Console.WriteLine($"  {moduleAddresses.Count} hw address(es) trobades.");
             Console.WriteLine("Extracting program blocks from the open project...");
             BlockDocsExportReport blockReport = new BlocksExportService(connection.Project).ExportDocs(docsDir);
-            Console.WriteLine($"  {blockReport.Exported} block(s) exportats, {blockReport.Errors.Count} avís(os).");
+            int udtCount = blockReport.Blocks.Count(b => string.Equals(b.Kind, "Type", StringComparison.OrdinalIgnoreCase));
+            int tagTableCount = blockReport.Blocks.Count(b => string.Equals(b.Kind, "TagTable", StringComparison.OrdinalIgnoreCase));
+            Console.WriteLine(
+                $"  {blockReport.Blocks.Count - udtCount - tagTableCount} bloc(s), {udtCount} UDT(s), " +
+                $"{tagTableCount} taula(es) de variables; {blockReport.Errors.Count} avís(os).");
+            foreach (string blockError in blockReport.Errors)
+                Console.WriteLine($"  (avís bloc) {blockError}");
 
+            Console.WriteLine("Writing CSV files...");
             var report = new DocsExportService(docsDir, catalog).Export(
                 devices, tags, moduleAddresses, blockReport.Blocks);
             Console.WriteLine();
@@ -3097,10 +3164,7 @@ namespace TiaOpennessApp
             Console.WriteLine($"  Interfaces: {report.Interfaces}");
             Console.WriteLine($"  IoTags:     {report.Tags}");
             Console.WriteLine($"  HwAddr:     {report.ModuleAddresses}");
-            Console.WriteLine($"  Blocks:     {report.Blocks}");
-
-            foreach (string blockError in blockReport.Errors)
-                Console.WriteLine($"  BLOCK WARN: {blockError}");
+            Console.WriteLine($"  Blocks:     {report.Blocks} (blocs + UDT + taules de variables)");
 
             if (report.TypeKeysMissing.Count > 0)
             {
@@ -3230,6 +3294,59 @@ namespace TiaOpennessApp
             string full = Path.Combine(dir, name, name + ".ap21");
             Console.WriteLine($"Using project: {full}");
             return full;
+        }
+
+        /// <summary>
+        /// Resol l'entrada de l'usuari a un fitxer de projecte TIA (.ap*).
+        /// Accepta: camí complet del fitxer, carpeta del projecte, o nom del
+        /// projecte dins de TiaPortal:ProjectPath / TiaPortal:NewProjectPath.
+        /// Retorna null si no es troba cap projecte.
+        /// </summary>
+        private static string? ResolveProjectFile(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input))
+                return null;
+
+            string value = input.Trim().Trim('"');
+
+            static string? FirstProjectIn(string dir)
+            {
+                if (!Directory.Exists(dir))
+                    return null;
+                return Directory.GetFiles(dir, "*.ap*", SearchOption.TopDirectoryOnly)
+                    .Where(f => Path.GetExtension(f).StartsWith(".ap", StringComparison.OrdinalIgnoreCase)
+                                && Path.GetExtension(f).Length > 3
+                                && char.IsDigit(Path.GetExtension(f)[3]))
+                    .OrderByDescending(f => f, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+            }
+
+            if (File.Exists(value))
+                return Path.GetFullPath(value);
+
+            string? inFolder = FirstProjectIn(value);
+            if (inFolder != null)
+                return Path.GetFullPath(inFolder);
+
+            if (Path.IsPathRooted(value))
+                return null;
+
+            foreach (string key in new[] { "TiaPortal:ProjectPath", "TiaPortal:NewProjectPath" })
+            {
+                string? root = AppConfig[key];
+                if (string.IsNullOrWhiteSpace(root))
+                    continue;
+
+                string candidate = Path.Combine(root, value);
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+
+                string? found = FirstProjectIn(candidate);
+                if (found != null)
+                    return Path.GetFullPath(found);
+            }
+
+            return null;
         }
 
         private static string ReadAndRememberValue(string label, string settingsKey)

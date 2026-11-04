@@ -7,6 +7,8 @@ using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
+using Siemens.Engineering.SW.Tags;
+using Siemens.Engineering.SW.Types;
 using TiaOpennessApp.Models.Generation;
 
 namespace TiaOpennessApp.Services
@@ -29,6 +31,9 @@ namespace TiaOpennessApp.Services
         public BlockGenerationAction Action { get; set; }
         public int ImportedCount { get; set; }
         public string? Error { get; set; }
+
+        /// <summary>Motiu informatiu (no és error), p. ex. per què s'ha saltat.</summary>
+        public string? Note { get; set; }
     }
 
     public class BlocksGenerationReport
@@ -61,9 +66,10 @@ namespace TiaOpennessApp.Services
     }
 
     /// <summary>
-    /// Importa blocs SimaticML en un projecte/template existent. No crea el
-    /// projecte ni exporta UDTs: el cridador ha de clonar un template que ja
-    /// contingui els UDTs, llenguatges i blocs referenciats.
+    /// Importa UDTs (Kind=Type) i blocs SimaticML en un projecte/template
+    /// existent que ja tingui el maquinari. Primer els UDTs i després els blocs,
+    /// cadascun per passades fins que no hi ha progrés, de manera que l'ordre de
+    /// Blocks.csv no importa (UDT→UDT, FB multiinstància, InstanceDB→FB).
     /// </summary>
     public class BlocksGenerationService
     {
@@ -96,12 +102,17 @@ namespace TiaOpennessApp.Services
             var report = new BlocksGenerationReport();
             var softwareByDevice = new Dictionary<string, PlcSoftware>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var entry in document.Blocks
-                         .Select((block, index) => new { Block = block, Index = index })
-                         .OrderBy(e => OrderFor(e.Block.BlockType))
-                         .ThenBy(e => e.Index))
+            var ordered = document.Blocks
+                .Select((block, index) => new { Block = block, Index = index })
+                .OrderBy(e => IsType(e.Block) ? -2 : IsTagTable(e.Block) ? -1 : OrderFor(e.Block.BlockType))
+                .ThenBy(e => e.Index)
+                .Select(e => e.Block)
+                .ToList();
+
+            // 1) Preparació: resoldre fitxer/PLC/grup i decidir si se salta.
+            var pending = new List<PendingImport>();
+            foreach (BlockSpec spec in ordered)
             {
-                BlockSpec spec = entry.Block;
                 var item = new BlockGenerationItemReport
                 {
                     Device = spec.Device,
@@ -111,6 +122,15 @@ namespace TiaOpennessApp.Services
                     SourceFile = spec.SourceFile,
                 };
                 report.Items.Add(item);
+
+                if (IsSafety(spec))
+                {
+                    // Els blocs F (F_FBD/F_LAD/F_DB) els genera i gestiona TIA amb el
+                    // grup de runtime F; no es poden importar com a blocs estàndard.
+                    item.Action = BlockGenerationAction.Skipped;
+                    item.Note = $"bloc de seguretat ({spec.ProgrammingLanguage}): el gestiona TIA, no s'importa";
+                    continue;
+                }
 
                 try
                 {
@@ -124,43 +144,331 @@ namespace TiaOpennessApp.Services
                         throw new InvalidOperationException($"El dispositiu '{spec.Device}' no té software PLC.");
 
                     softwareByDevice[spec.Device] = software;
-                    PlcBlockGroup group = EnsureGroup(software.BlockGroup, spec.GroupPath);
-                    bool exists = group.Blocks.Find(spec.Name) != null;
+                    bool preExisting = Exists(software, spec);
 
-                    if (exists && !options.OverrideExisting)
+                    // Les taules de variables sempre se sobreescriuen: les del template
+                    // (només I/O tags generats) són un subconjunt de les de la font.
+                    if (preExisting && !options.OverrideExisting && !IsTagTable(spec))
                     {
                         item.Action = BlockGenerationAction.Skipped;
+                        item.Note = "ja existeix (sense override)";
                         continue;
                     }
 
-                    ImportOptions importOptions = exists
-                        ? ImportOptions.Override
-                        : ImportOptions.None;
-
-                    IList<PlcBlock> imported = ImportWithRetry(
-                        group.Blocks,
-                        new FileInfo(filePath),
-                        importOptions,
-                        options.AllowMissingReferences);
-
-                    item.ImportedCount = imported.Count;
-                    item.Action = exists
-                        ? BlockGenerationAction.Overridden
-                        : BlockGenerationAction.Imported;
+                    pending.Add(new PendingImport(spec, item, software, new FileInfo(filePath), preExisting));
                 }
                 catch (Exception ex)
                 {
-                    item.Action = BlockGenerationAction.Failed;
-                    item.Error = UnwrapMessage(ex);
-                    report.Errors.Add(
-                        $"{spec.Device}/{(string.IsNullOrWhiteSpace(spec.GroupPath) ? "(root)" : spec.GroupPath)}/{spec.Name}: {item.Error}");
+                    Fail(report, spec, item, UnwrapMessage(ex));
                 }
             }
+
+            // 2) Import per passades: UDTs primer, després blocs. El que falla es
+            // reintenta a la passada següent (dependències UDT→UDT, FB→FB
+            // multiinstància, InstanceDB→FB). Para quan una passada no avança.
+            ImportInPasses(pending.Where(p => IsType(p.Spec)).ToList(), report, options, "UDT");
+            ImportInPasses(pending.Where(p => IsTagTable(p.Spec)).ToList(), report, options, "taules de variables");
+            ImportInPasses(pending.Where(p => !IsType(p.Spec) && !IsTagTable(p.Spec)).ToList(), report, options, "blocs");
 
             if (options.Compile)
                 Compile(softwareByDevice.Values, report);
 
             return report;
+        }
+
+        private sealed class PendingImport
+        {
+            public PendingImport(BlockSpec spec, BlockGenerationItemReport item, PlcSoftware software,
+                FileInfo file, bool preExisting)
+            {
+                Spec = spec;
+                Item = item;
+                Software = software;
+                File = file;
+                PreExisting = preExisting;
+            }
+
+            public BlockSpec Spec { get; }
+            public BlockGenerationItemReport Item { get; }
+            public PlcSoftware Software { get; }
+            public FileInfo File { get; }
+            public bool PreExisting { get; }
+            public string? LastError { get; set; }
+        }
+
+        private void ImportInPasses(
+            List<PendingImport> pending,
+            BlocksGenerationReport report,
+            BlocksGenerationOptions options,
+            string label)
+        {
+            int pass = 0;
+            while (pending.Count > 0)
+            {
+                pass++;
+                var failed = new List<PendingImport>();
+                foreach (PendingImport p in pending)
+                {
+                    try
+                    {
+                        // Si una passada anterior ha deixat l'objecte creat a mitges,
+                        // cal sobreescriure'l.
+                        bool existsNow = p.PreExisting || Exists(p.Software, p.Spec);
+                        ImportOptions importOptions = existsNow ? ImportOptions.Override : ImportOptions.None;
+
+                        int count = IsType(p.Spec)
+                            ? ImportTypeWithRetry(EnsureTypeGroup(p.Software.TypeGroup, p.Spec.GroupPath).Types,
+                                p.File, importOptions, options.AllowMissingReferences).Count
+                            : IsTagTable(p.Spec)
+                                ? ImportTagTable(p, importOptions)
+                                : ImportWithRetry(EnsureGroup(p.Software.BlockGroup, p.Spec.GroupPath).Blocks,
+                                    p.File, importOptions, options.AllowMissingReferences).Count;
+
+                        p.Item.ImportedCount = count;
+                        p.Item.Action = p.PreExisting ? BlockGenerationAction.Overridden : BlockGenerationAction.Imported;
+                        p.Item.Error = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        p.LastError = ShortMessage(ex);
+                        failed.Add(p);
+                    }
+                }
+
+                int succeeded = pending.Count - failed.Count;
+                Console.WriteLine($"  Passada {pass} ({label}): {succeeded} importats, {failed.Count} pendents.");
+                if (succeeded == 0)
+                {
+                    foreach (PendingImport p in failed)
+                        Fail(report, p.Spec, p.Item, p.LastError ?? "Error desconegut.");
+                    return;
+                }
+
+                pending = failed;
+            }
+        }
+
+        private static void Fail(BlocksGenerationReport report, BlockSpec spec, BlockGenerationItemReport item, string error)
+        {
+            item.Action = BlockGenerationAction.Failed;
+            item.Error = error;
+            report.Errors.Add(
+                $"{spec.Device}/{(string.IsNullOrWhiteSpace(spec.GroupPath) ? "(root)" : spec.GroupPath)}/{spec.Name}: {error}");
+        }
+
+        private static bool IsType(BlockSpec spec) =>
+            string.Equals(spec.Kind, "Type", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsTagTable(BlockSpec spec) =>
+            string.Equals(spec.Kind, "TagTable", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Blocs de seguretat (F_FBD, F_LAD, F_DB, F_STL...).</summary>
+        public static bool IsSafety(BlockSpec spec) =>
+            (spec.ProgrammingLanguage ?? string.Empty).StartsWith("F_", StringComparison.OrdinalIgnoreCase);
+
+        private static bool Exists(PlcSoftware software, BlockSpec spec)
+        {
+            if (IsType(spec))
+            {
+                PlcTypeGroup? typeGroup = FindTypeGroup(software.TypeGroup, spec.GroupPath);
+                return typeGroup?.Types.Find(spec.Name) != null;
+            }
+
+            // El nom d'una taula de variables és únic a tot el PLC (sigui quin
+            // sigui el grup), així que es busca a tot l'arbre.
+            if (IsTagTable(spec))
+                return FindTagTableOwner(software.TagTableGroup, spec.Name) != null;
+
+            PlcBlockGroup? group = FindBlockGroup(software.BlockGroup, spec.GroupPath);
+            return group?.Blocks.Find(spec.Name) != null;
+        }
+
+        private static PlcBlockGroup? FindBlockGroup(PlcBlockGroup root, string groupPath)
+        {
+            PlcBlockGroup current = root;
+            foreach (string segment in SplitGroup(groupPath))
+            {
+                PlcBlockUserGroup? child = current.Groups.Find(segment);
+                if (child == null)
+                    return null;
+                current = child;
+            }
+            return current;
+        }
+
+        private static PlcTypeGroup? FindTypeGroup(PlcTypeGroup root, string groupPath)
+        {
+            PlcTypeGroup current = root;
+            foreach (string segment in SplitGroup(groupPath))
+            {
+                PlcTypeUserGroup? child = current.Groups.Find(segment);
+                if (child == null)
+                    return null;
+                current = child;
+            }
+            return current;
+        }
+
+        private static PlcTypeGroup EnsureTypeGroup(PlcTypeGroup root, string groupPath)
+        {
+            PlcTypeGroup current = root;
+            foreach (string segment in SplitGroup(groupPath))
+            {
+                PlcTypeUserGroup? child = current.Groups.Find(segment);
+                child ??= current.Groups.Create(segment);
+                current = child;
+            }
+            return current;
+        }
+
+        /// <summary>
+        /// Importa una taula de variables. Si ja n'hi ha una amb el mateix nom en
+        /// qualsevol grup, se sobreescriu allà mateix (TIA no permet dues taules
+        /// amb el mateix nom). Si no, es crea al GroupPath de la font.
+        /// </summary>
+        private static int ImportTagTable(PendingImport p, ImportOptions importOptions)
+        {
+            PlcTagTableGroup root = p.Software.TagTableGroup;
+            PlcTagTableGroup? owner = FindTagTableOwner(root, p.Spec.Name);
+            if (owner != null)
+                return ImportTagTableWithRetry(owner.TagTables, p.File, importOptions | ImportOptions.Override);
+
+            return ImportTagTableWithRetry(EnsureTagTableGroup(root, p.Spec.GroupPath).TagTables, p.File, importOptions);
+        }
+
+        private static PlcTagTableGroup? FindTagTableOwner(PlcTagTableGroup group, string name)
+        {
+            if (group.TagTables.Find(name) != null)
+                return group;
+            foreach (PlcTagTableUserGroup child in group.Groups)
+            {
+                PlcTagTableGroup? found = FindTagTableOwner(child, name);
+                if (found != null)
+                    return found;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Resol/crea el grup de taules. Els noms de grup poden contenir '/'
+        /// (p. ex. "E/S"), així que a cada nivell es prova primer el prefix més
+        /// llarg de segments que coincideixi amb un grup existent. Si no n'hi ha
+        /// cap, es crea un sol grup amb tota la resta del camí com a nom.
+        /// </summary>
+        private static PlcTagTableGroup EnsureTagTableGroup(PlcTagTableGroup root, string groupPath)
+        {
+            PlcTagTableGroup current = root;
+            string[] segments = SplitGroup(groupPath);
+            int i = 0;
+            while (i < segments.Length)
+            {
+                PlcTagTableUserGroup? child = null;
+                int used = 0;
+                for (int len = segments.Length - i; len >= 1 && child == null; len--)
+                {
+                    child = current.Groups.Find(string.Join("/", segments, i, len));
+                    if (child != null)
+                        used = len;
+                }
+
+                if (child == null)
+                {
+                    used = segments.Length - i;
+                    try
+                    {
+                        child = current.Groups.Create(string.Join("/", segments, i, used));
+                    }
+                    catch (Exception) when (used > 1)
+                    {
+                        // Nom amb '/' no acceptat: crea els grups niats un a un.
+                        used = 1;
+                        child = current.Groups.Create(segments[i]);
+                    }
+                }
+
+                current = child;
+                i += used;
+            }
+            return current;
+        }
+
+        private static int ImportTagTableWithRetry(
+            PlcTagTableComposition composition,
+            FileInfo file,
+            ImportOptions importOptions)
+        {
+            try
+            {
+                composition.Import(file, importOptions);
+            }
+            catch (Exception first)
+            {
+                try
+                {
+                    composition.Import(file, importOptions | ImportOptions.SkipInactiveCultures);
+                }
+                catch (Exception retry)
+                {
+                    throw new InvalidOperationException(CombineErrors(first, retry));
+                }
+            }
+            return 1;
+        }
+
+        private static string[] SplitGroup(string? groupPath) =>
+            (groupPath ?? string.Empty).Trim().Trim('/')
+            .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+
+        private static IList<PlcType> ImportTypeWithRetry(
+            PlcTypeComposition composition,
+            FileInfo file,
+            ImportOptions importOptions,
+            bool allowMissingReferences)
+        {
+            try
+            {
+                return composition.Import(file, importOptions, SWImportOptions.None);
+            }
+            catch (Exception first)
+            {
+                var retryOptions = importOptions | ImportOptions.SkipInactiveCultures;
+                var swOptions = allowMissingReferences
+                    ? SWImportOptions.IgnoreMissingReferencedObjects
+                    : SWImportOptions.None;
+                try
+                {
+                    return composition.Import(file, retryOptions, swOptions);
+                }
+                catch (Exception retry)
+                {
+                    throw new InvalidOperationException(CombineErrors(first, retry));
+                }
+            }
+        }
+
+        private static string CombineErrors(Exception first, Exception retry)
+        {
+            string a = ShortMessage(first);
+            string b = ShortMessage(retry);
+            return string.Equals(a, b, StringComparison.Ordinal) ? a : $"{a} | Reintent: {b}";
+        }
+
+        /// <summary>Darrer missatge útil de la cadena d'excepcions (TIA repeteix els embolcalls).</summary>
+        private static string ShortMessage(Exception exception)
+        {
+            var parts = new List<string>();
+            for (Exception? e = exception; e != null; e = e.InnerException)
+            {
+                foreach (string line in e.Message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string t = line.Trim();
+                    if (t.Length == 0 || t.StartsWith("Error when calling method", StringComparison.Ordinal))
+                        continue;
+                    if (!parts.Contains(t))
+                        parts.Add(t);
+                }
+            }
+            return parts.Count == 0 ? exception.Message.Trim() : string.Join(" ", parts);
         }
 
         private static int OrderFor(string blockType)
@@ -238,9 +546,7 @@ namespace TiaOpennessApp.Services
                 }
                 catch (Exception retry)
                 {
-                    throw new InvalidOperationException(
-                        $"Import fallit. Primer intent: {UnwrapMessage(first)}. Reintent: {UnwrapMessage(retry)}.",
-                        retry);
+                    throw new InvalidOperationException(CombineErrors(first, retry));
                 }
             }
         }

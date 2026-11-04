@@ -54,7 +54,14 @@ namespace TiaOpennessApp.Services
 
                 if (root == null)
                 {
-                    Console.WriteLine($"  (avís) '{device.DeviceName}': sense mòdul root detectable; es salta.");
+                    Console.WriteLine($"  (avís hw) '{device.DeviceName}': sense mòdul root detectable; no s'escriu a Devices.csv.");
+                    Console.WriteLine(
+                        $"      StationType='{device.StationType}' OrderNumber='{device.DeviceOrderNumber}' " +
+                        $"mòduls amb referència={modules.Count}");
+                    foreach (NetworkModuleInfo m in modules.Take(4))
+                        Console.WriteLine($"      mòdul: {m.Name} [{m.OrderNumber}] [{m.TypeIdentifier}]");
+                    foreach (string raw in (device.ItemsWithoutOrderNumber ?? new List<string>()).Take(6))
+                        Console.WriteLine($"      sense ref: {raw}");
                     continue;
                 }
 
