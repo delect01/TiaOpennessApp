@@ -47,6 +47,11 @@ namespace TiaOpennessApp.Services
 
             var doc = new GenerationDocument();
 
+            // Modules.csv escriu noms de mòdul sanejats ("DQ 16x24VDC/0.5A ST_1" →
+            // "DQ16x24VDC05AST_1"). IoTags/ModuleAddresses els han de fer servir
+            // igual, o la generació no troba el mòdul. Clau: "Device|NomOriginal".
+            var moduleNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (NetworkDeviceInfo device in devices)
             {
                 var modules = device.Modules ?? new List<NetworkModuleInfo>();
@@ -122,10 +127,14 @@ namespace TiaOpennessApp.Services
                     bool isRoot = module.OrderNumber.Equals(root.OrderNumber, StringComparison.OrdinalIgnoreCase);
                     int? slot = module.PositionNumber == BusAdapterSlot ? null : module.PositionNumber;
 
+                    string sanitizedName = SanitizeModuleName(module.Name, typeKey);
+                    if (!string.IsNullOrEmpty(module.Name))
+                        moduleNameMap[device.DeviceName + "|" + module.Name] = sanitizedName;
+
                     doc.Modules.Add(new ModuleSpec
                     {
                         Device = device.DeviceName,
-                        ModuleName = SanitizeModuleName(module.Name, typeKey),
+                        ModuleName = sanitizedName,
                         Slot = slot,
                         TypeKey = typeKey,
                         Comment = isRoot ? "Root" : module.TypeName,
@@ -136,9 +145,28 @@ namespace TiaOpennessApp.Services
             doc.Subnets.AddRange(BuildSubnets(devices));
             BuildInterfaces(devices, doc);
             if (ioTags != null)
+            {
+                foreach (IoTagSpec tag in ioTags)
+                {
+                    string ioDevice = string.IsNullOrWhiteSpace(tag.IoDevice) ? tag.Device : tag.IoDevice;
+                    string original = tag.ModuleName;
+                    tag.ModuleName = MapModuleName(moduleNameMap, ioDevice, original);
+                    if (string.Equals(tag.SubModuleName, original, StringComparison.Ordinal))
+                        tag.SubModuleName = tag.ModuleName;
+                }
                 doc.IoTags.AddRange(ioTags);
+            }
             if (moduleAddresses != null)
+            {
+                foreach (ModuleAddressSpec addr in moduleAddresses)
+                {
+                    string original = addr.ModuleName;
+                    addr.ModuleName = MapModuleName(moduleNameMap, addr.Device, original);
+                    if (string.Equals(addr.SubModuleName, original, StringComparison.Ordinal))
+                        addr.SubModuleName = addr.ModuleName;
+                }
                 doc.ModuleAddresses.AddRange(moduleAddresses);
+            }
             if (blocks != null)
                 doc.Blocks.AddRange(blocks);
 
@@ -232,6 +260,13 @@ namespace TiaOpennessApp.Services
             return string.Empty;
         }
 
+        private static string MapModuleName(Dictionary<string, string> map, string device, string moduleName)
+        {
+            if (string.IsNullOrEmpty(moduleName))
+                return moduleName;
+            return map.TryGetValue(device + "|" + moduleName, out string? sanitized) ? sanitized : moduleName;
+        }
+
         private static string SanitizeModuleName(string? name, string typeKey)
         {
             if (string.IsNullOrWhiteSpace(name))
@@ -298,6 +333,7 @@ namespace TiaOpennessApp.Services
                         SubnetMask = mask,
                         PnDeviceName = SanitizePnDeviceName(iface.PnDeviceName),
                         MasterIoSystem = iface.MasterIoSystem ?? string.Empty,
+                        MasterIoSystemNumber = iface.MasterIoSystemNumber,
                     });
                 }
         }

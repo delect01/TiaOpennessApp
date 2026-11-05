@@ -114,6 +114,7 @@ namespace TiaOpennessApp.Services
                 SubnetMask = GetString(header, getter, GenerationColumns.SubnetMask) ?? string.Empty,
                 PnDeviceName = GetString(header, getter, GenerationColumns.PnDeviceName) ?? string.Empty,
                 MasterIoSystem = GetString(header, getter, GenerationColumns.MasterIoSystem) ?? string.Empty,
+                MasterIoSystemNumber = ParseOptionalNonNegativeInt(header, getter, GenerationColumns.MasterIoSystemNumber, source, row, addIssue),
             };
 
             Require(spec.Device, GenerationColumns.Device, header, source, row, addIssue);

@@ -147,6 +147,7 @@ namespace TiaOpennessApp.Services
                 csv.WriteField(GenerationColumns.SubnetMask);
                 csv.WriteField(GenerationColumns.PnDeviceName);
                 csv.WriteField(GenerationColumns.MasterIoSystem);
+                csv.WriteField(GenerationColumns.MasterIoSystemNumber);
                 csv.NextRecord();
 
                 foreach (var i in interfaces)
@@ -158,6 +159,7 @@ namespace TiaOpennessApp.Services
                     csv.WriteField(i.SubnetMask);
                     csv.WriteField(i.PnDeviceName);
                     csv.WriteField(i.MasterIoSystem);
+                    csv.WriteField(i.MasterIoSystemNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
                     csv.NextRecord();
                 }
             }

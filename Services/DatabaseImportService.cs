@@ -262,6 +262,7 @@ CREATE TABLE interfaces (
     subnet_mask    TEXT,
     pn_device_name TEXT,
     master_io_system TEXT,
+    master_io_system_number INTEGER,
     UNIQUE(device, interface_item)
 );
 
@@ -446,7 +447,8 @@ SELECT d.device_name,
        i.ip_address,
        i.subnet_mask,
        i.pn_device_name,
-       i.master_io_system
+       i.master_io_system,
+       i.master_io_system_number
 FROM devices d
 LEFT JOIN catalog c ON c.type_key = d.type_key
 LEFT JOIN interfaces i ON i.device = d.device_name;
@@ -650,9 +652,9 @@ LEFT JOIN module_addresses a
             string file = Path.GetFileName(path);
 
             using (var command = CreateCommand(connection, transaction,
-                "INSERT INTO interfaces (device, interface_item, subnet, ip_address, subnet_mask, pn_device_name, master_io_system) VALUES (@device, @interface_item, @subnet, @ip_address, @subnet_mask, @pn_device_name, @master_io_system);"))
+                "INSERT INTO interfaces (device, interface_item, subnet, ip_address, subnet_mask, pn_device_name, master_io_system, master_io_system_number) VALUES (@device, @interface_item, @subnet, @ip_address, @subnet_mask, @pn_device_name, @master_io_system, @master_io_system_number);"))
             {
-                AddParameter(command, "@device", "@interface_item", "@subnet", "@ip_address", "@subnet_mask", "@pn_device_name", "@master_io_system");
+                AddParameter(command, "@device", "@interface_item", "@subnet", "@ip_address", "@subnet_mask", "@pn_device_name", "@master_io_system", "@master_io_system_number");
 
                 foreach (Row row in ReadRows(path))
                 {
@@ -681,6 +683,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@subnet_mask", row.Get("SubnetMask"));
                     SetParameter(command, "@pn_device_name", row.Get("PNDeviceName"));
                     SetParameter(command, "@master_io_system", row.Get("MasterIOSystem"));
+                    SetParameter(command, "@master_io_system_number", row.Get("MasterIOSystemNumber"));
                     command.ExecuteNonQuery();
                 }
             }

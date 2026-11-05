@@ -1850,8 +1850,11 @@ namespace TiaOpennessApp
         /// </summary>
         private static List<string> CompareBlocks(List<BlockSpec> expected, List<BlockInventoryItem> actual)
         {
+            // Els DB de sistema poden acabar al grup de sistema o a l'arrel: no es
+            // compara el grup, només que hi siguin.
             static string Key(string device, string group, string name, string type, int? number, string language) =>
-                $"{device}|{group}|{name}|{type}|{number?.ToString(CultureInfo.InvariantCulture) ?? "?"}|{language}";
+                $"{device}|{(BlocksExportService.IsSystemGroupPath(group) ? string.Empty : group)}|{name}|{type}|" +
+                $"{number?.ToString(CultureInfo.InvariantCulture) ?? "?"}|{language}";
 
             var actualSet = new HashSet<string>(
                 actual.Where(a => a.Error == null).Select(a => Key(a.DeviceName, a.GroupPath, a.Name,

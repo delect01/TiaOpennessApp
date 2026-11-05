@@ -81,6 +81,7 @@ namespace TiaOpennessApp.Services
                         continue;
 
                     WalkGroup(software.BlockGroup, string.Empty, device.Name, result.Blocks.Add);
+                    WalkSystemGroups(software.BlockGroup.SystemBlockGroups, SystemGroupPrefix, device.Name, result.Blocks.Add);
                 }
                 catch (Exception ex)
                 {
@@ -152,6 +153,11 @@ namespace TiaOpennessApp.Services
 
             foreach (BlockInventoryItem item in inspection.Blocks)
             {
+                // Blocs de sistema: només els DB (instància única de TON, R_TRIG...).
+                // Els FB/FC de sistema els afegeix TIA en compilar.
+                if (IsSystemGroupPath(item.GroupPath) && !IsExportableSystemBlock(item.BlockType))
+                    continue;
+
                 string label = FormatItem(item);
                 if (item.Error != null)
                 {
@@ -376,11 +382,21 @@ namespace TiaOpennessApp.Services
             PlcSoftware? software = FindPlcSoftware(device)
                 ?? throw new InvalidOperationException($"Device '{item.DeviceName}' has no PLC software.");
 
-            PlcBlockGroup? group = FindGroup(software.BlockGroup, item.GroupPath);
-            if (group == null)
-                throw new InvalidOperationException($"Block group '{item.GroupPath}' not found.");
+            PlcBlockComposition blocks;
+            if (IsSystemGroupPath(item.GroupPath))
+            {
+                PlcSystemBlockGroup? systemGroup = FindSystemGroup(software.BlockGroup, item.GroupPath)
+                    ?? throw new InvalidOperationException($"System block group '{item.GroupPath}' not found.");
+                blocks = systemGroup.Blocks;
+            }
+            else
+            {
+                PlcBlockGroup? group = FindGroup(software.BlockGroup, item.GroupPath)
+                    ?? throw new InvalidOperationException($"Block group '{item.GroupPath}' not found.");
+                blocks = group.Blocks;
+            }
 
-            PlcBlock? block = group.Blocks.Find(item.Name);
+            PlcBlock? block = blocks.Find(item.Name);
             if (block == null)
                 throw new InvalidOperationException($"Block '{item.Name}' not found in group '{item.GroupPath}'.");
 
@@ -532,6 +548,69 @@ namespace TiaOpennessApp.Services
             }
 
             return (null, groupPath);
+        }
+
+        /// <summary>
+        /// Prefix de GroupPath per als blocs de "System blocks" (p. ex.
+        /// "[System]/Program resources"): DBs d'instància única de TON/TOF/R_TRIG...
+        /// que TIA crea automàticament i que el codi referencia pel nom.
+        /// </summary>
+        public const string SystemGroupPrefix = "[System]";
+
+        public static bool IsSystemGroupPath(string? groupPath) =>
+            (groupPath ?? string.Empty).TrimStart('/').StartsWith(SystemGroupPrefix, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Dels blocs de sistema només s'exporten els DB; la resta els crea TIA.</summary>
+        public static bool IsExportableSystemBlock(string? blockType) =>
+            string.Equals(blockType, "InstanceDB", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(blockType, "GlobalDB", StringComparison.OrdinalIgnoreCase);
+
+        private static void WalkSystemGroups(
+            PlcSystemBlockGroupComposition groups,
+            string parentPath,
+            string deviceName,
+            Action<BlockInventoryItem> add)
+        {
+            foreach (PlcSystemBlockGroup group in groups)
+            {
+                string path = parentPath + "/" + group.Name;
+                foreach (PlcBlock block in group.Blocks)
+                {
+                    try
+                    {
+                        add(CreateItem(deviceName, path, block));
+                    }
+                    catch (Exception ex)
+                    {
+                        string blockName = string.Empty;
+                        try { blockName = block.Name; } catch { }
+                        add(new BlockInventoryItem { DeviceName = deviceName, GroupPath = path, Name = blockName, Error = ex.Message });
+                    }
+                }
+                WalkSystemGroups(group.Groups, path, deviceName, add);
+            }
+        }
+
+        /// <summary>Busca un grup de sistema per camí "[System]/A/B".</summary>
+        internal static PlcSystemBlockGroup? FindSystemGroup(PlcBlockSystemGroup root, string groupPath)
+        {
+            string[] segments = (groupPath ?? string.Empty).Trim('/')
+                .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
+                .Skip(1)
+                .ToArray();
+            if (segments.Length == 0)
+                return null;
+
+            PlcSystemBlockGroupComposition groups = root.SystemBlockGroups;
+            PlcSystemBlockGroup? current = null;
+            foreach (string segment in segments)
+            {
+                current = groups.FirstOrDefault(g => string.Equals(g.Name, segment, StringComparison.OrdinalIgnoreCase));
+                if (current == null)
+                    return null;
+                groups = current.Groups;
+            }
+            return current;
         }
 
         private static PlcBlockGroup? FindGroup(PlcBlockGroup root, string groupPath)

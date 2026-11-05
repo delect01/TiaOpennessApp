@@ -221,7 +221,7 @@ namespace TiaOpennessApp.Services
                                 p.File, importOptions, options.AllowMissingReferences).Count
                             : IsTagTable(p.Spec)
                                 ? ImportTagTable(p, importOptions)
-                                : ImportWithRetry(EnsureGroup(p.Software.BlockGroup, p.Spec.GroupPath).Blocks,
+                                : ImportWithRetry(TargetBlocks(p.Software, p.Spec.GroupPath),
                                     p.File, importOptions, options.AllowMissingReferences).Count;
 
                         p.Item.ImportedCount = count;
@@ -279,8 +279,32 @@ namespace TiaOpennessApp.Services
             if (IsTagTable(spec))
                 return FindTagTableOwner(software.TagTableGroup, spec.Name) != null;
 
+            if (BlocksExportService.IsSystemGroupPath(spec.GroupPath))
+            {
+                // DB de sistema: pot ser al grup de sistema o (si s'hi va importar) a l'arrel.
+                PlcSystemBlockGroup? systemGroup = BlocksExportService.FindSystemGroup(software.BlockGroup, spec.GroupPath);
+                return systemGroup?.Blocks.Find(spec.Name) != null
+                    || software.BlockGroup.Blocks.Find(spec.Name) != null;
+            }
+
             PlcBlockGroup? group = FindBlockGroup(software.BlockGroup, spec.GroupPath);
             return group?.Blocks.Find(spec.Name) != null;
+        }
+
+        /// <summary>
+        /// Composició on s'importa el bloc. Per als DB de sistema ("[System]/...")
+        /// és el grup de sistema si ja existeix al template; si no, l'arrel de
+        /// "Program blocks" (TIA no deixa crear grups de sistema).
+        /// </summary>
+        private static PlcBlockComposition TargetBlocks(PlcSoftware software, string? groupPath)
+        {
+            if (BlocksExportService.IsSystemGroupPath(groupPath))
+            {
+                PlcSystemBlockGroup? systemGroup = BlocksExportService.FindSystemGroup(software.BlockGroup, groupPath ?? string.Empty);
+                return systemGroup?.Blocks ?? software.BlockGroup.Blocks;
+            }
+
+            return EnsureGroup(software.BlockGroup, groupPath ?? string.Empty).Blocks;
         }
 
         private static PlcBlockGroup? FindBlockGroup(PlcBlockGroup root, string groupPath)

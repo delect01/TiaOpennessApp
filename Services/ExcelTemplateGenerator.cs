@@ -131,6 +131,8 @@ namespace TiaOpennessApp.Services
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.SubnetMask)).Value = rows[i].SubnetMask;
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.PnDeviceName)).Value = rows[i].PnDeviceName;
                 ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.MasterIoSystem)).Value = rows[i].MasterIoSystem;
+                if (rows[i].MasterIoSystemNumber.HasValue)
+                    ws.Cell(r, Column(GenerationColumns.InterfacesColumns, GenerationColumns.MasterIoSystemNumber)).Value = rows[i].MasterIoSystemNumber.Value;
             }
         }
 

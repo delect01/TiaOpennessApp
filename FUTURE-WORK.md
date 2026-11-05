@@ -10,17 +10,20 @@
 Integrar la aplicación como un **Add-In de TIA Portal** empaquetado como VSIX.
 
 ### Beneficios
+
 - Aparece como cinta/menú personalizado dentro de la UI de TIA Portal
 - Comandos personalizados sobre el proyecto abierto
 - Integración nativa con el entorno de ingeniería
 
 ### Recursos disponibles (ya instalados)
+
 - `Siemens.Engineering.AddIn.Publisher.exe`
 - `Siemens.Engineering.AddIn.*.dll` (Base, Step7, WinCC, Safety, Utilities)
 - `Siemens.Engineering.AddIn.Publisher.xsd`
 - NuGet: Microsoft.VisualStudio.SDK (para empaquetado VSIX)
 
-### Funcionalidades candidatas
+### Funcionalidades candidatas de la extensión VSIX
+
 - Mostrar dispositivos del proyecto
 - Exportar hardware a JSON
 - Compilar bloques PLC
@@ -28,6 +31,7 @@ Integrar la aplicación como un **Add-In de TIA Portal** empaquetado como VSIX.
 - Edición HMI
 
 ### Referencias
+
 - API XML: `C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\Siemens.Engineering.AddIn.*.dll`
 - Ejemplos: documentación Openness instalada con TIA Portal V21
 
@@ -37,18 +41,21 @@ Integrar la aplicación como un **Add-In de TIA Portal** empaquetado como VSIX.
 
 Paquete VSIX que agrega **menús/comandos a Visual Studio** que ejecutan operaciones Openness sobre TIA Portal.
 
-### Beneficios
+### Beneficios de la extensión
+
 - Comandos de TIA Portal disponibles dentro de Visual Studio
 - Unificar el flujo de trabajo de desarrollo de automatización con el editor
 - Reutilizar el código existente de `TiaOpennessApp`
 
 ### Funcionalidades candidatas
+
 - Build/compilación de bloques PLC desde Visual Studio
 - Exportar/importar programas entre VS y TIA
 - Comparación de versiones de proyecto
 - Diagnóstico de conexión Openness
 
 ### Requisitos sugeridos
+
 - Visual Studio Community 2022 (instalado)
 - VSIX SDK
 - Elevación de permisos para la AllowList de Openness
@@ -63,6 +70,7 @@ abierto, generar
 listos para el pipeline de generación (`--generate-project`).
 
 ### Detalles
+
 - Fuente: `DevicesAndNetworksService.ExportNetworkDevices()`.
 - Columnas objetivo en `GenerationColumns.cs`:
   - `Devices.csv`: `DeviceName,Group,TypeKey,Firmware,Comment`
@@ -72,6 +80,7 @@ listos para el pipeline de generación (`--generate-project`).
 - Resolver `TypeKey` automáticamente contra `Catalog.csv` (TypeKey = clave del catálogo para ese MLFB/OrderNumber).
 
 ### Estado: IMPLEMENTADO
+
 - Comando `--export-docs <projectPath|exportJson> [outDocsDir] [catalogCsv]`
   (CLI.md sección 13; `DocsExportService`, `Program.cs`).
 - `NetworkInterfaceInfo` extendido con `SubnetMask` y `PnDeviceName`; el

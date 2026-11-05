@@ -171,8 +171,25 @@ namespace TiaOpennessApp.Services
             return results;
         }
 
+        /// <summary>
+        /// Clau d'IO system. TIA permet diversos IO systems amb el mateix nom (p. ex.
+        /// dos "PROFINET IO-System", nº 100 i 101, un per interfície de la CPU): si hi
+        /// ha MasterIOSystemNumber es fa servir el número; si no, nom + subxarxa.
+        /// </summary>
+        private static string IoSystemKey(InterfaceSpec spec) =>
+            spec.MasterIoSystemNumber.HasValue
+                ? "#" + spec.MasterIoSystemNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : (spec.MasterIoSystem ?? string.Empty).Trim() + "|" + (spec.Subnet ?? string.Empty).Trim();
+
+        private static string Describe(IoSystem ioSystem)
+        {
+            try { return $"{ioSystem.Name} ({ioSystem.Number})"; }
+            catch { return ioSystem.Name; }
+        }
+
         private void AssignIoSystems(GenerationDocument doc, List<InterfaceGenerationItemReport> results)
         {
+            // Clau: IoSystemKey(spec) (número, o nom + subxarxa).
             var ioSystemsByName = new Dictionary<string, IoSystem>(StringComparer.OrdinalIgnoreCase);
             var usedForIo = new Dictionary<string, List<DeviceItem>>(StringComparer.OrdinalIgnoreCase);
 
@@ -206,8 +223,25 @@ namespace TiaOpennessApp.Services
                             else if (!string.Equals(ioSystem.Name, spec.MasterIoSystem, StringComparison.OrdinalIgnoreCase))
                                 ioSystem.Name = spec.MasterIoSystem.Trim();
 
-                            ioSystemsByName[spec.MasterIoSystem.Trim()] = ioSystem;
-                            report.Message = AppendIoStep(report.Message, $"IO system '{ioSystem.Name}' garantit al controlador");
+                            if (spec.MasterIoSystemNumber.HasValue && ioSystem.Number != spec.MasterIoSystemNumber.Value)
+                            {
+                                try
+                                {
+                                    ioSystem.Number = spec.MasterIoSystemNumber.Value;
+                                }
+                                catch (Exception ex)
+                                {
+                                    report.Message = AppendIoStep(report.Message,
+                                        $"(avís) no s'ha pogut posar el número {spec.MasterIoSystemNumber.Value}: {ex.Message}");
+                                }
+                            }
+
+                            ioSystemsByName[IoSystemKey(spec)] = ioSystem;
+                            report.Message = AppendIoStep(report.Message, $"IO system '{Describe(ioSystem)}' garantit al controlador");
+
+                            // Interfície controladora del seu propi IO system: no s'hi
+                            // connecta com a IO device.
+                            continue;
                         }
                     }
                     catch (Exception ex)
@@ -222,7 +256,7 @@ namespace TiaOpennessApp.Services
 
                 IoSystem? target = null;
                 if (!string.IsNullOrWhiteSpace(spec.MasterIoSystem))
-                    ioSystemsByName.TryGetValue(spec.MasterIoSystem.Trim(), out target);
+                    ioSystemsByName.TryGetValue(IoSystemKey(spec), out target);
                 else
                 {
                     IoSystem? sameSubnet = ioSystemsByName.Values
@@ -242,12 +276,12 @@ namespace TiaOpennessApp.Services
                 {
                     if (ReferenceEquals(connector.ConnectedToIoSystem, target))
                     {
-                        report.Message = AppendIoStep(report.Message, $"IO: ja assignada al '{target.Name}'");
+                        report.Message = AppendIoStep(report.Message, $"IO: ja assignada al '{Describe(target)}'");
                     }
                     else
                     {
                         connector.ConnectToIoSystem(target);
-                        report.Message = AppendIoStep(report.Message, $"assignada al IO system '{target.Name}'");
+                        report.Message = AppendIoStep(report.Message, $"assignada al IO system '{Describe(target)}'");
                         report.Connected = true;
                     }
                 }

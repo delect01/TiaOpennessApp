@@ -106,9 +106,9 @@ namespace TiaOpennessApp.Services
                         Count = WriteFile(connection,
                             Path.Combine(resolvedOutputDir, "Interfaces.csv"),
                             withBom: true,
-                            header: new[] { "Device", "InterfaceItem", "Subnet", "IPAddress", "SubnetMask", "PNDeviceName", "MasterIOSystem" },
-                            sql: "SELECT device, interface_item, subnet, ip_address, subnet_mask, pn_device_name, master_io_system FROM interfaces ORDER BY id;",
-                            map: r => new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6) }),
+                            header: new[] { "Device", "InterfaceItem", "Subnet", "IPAddress", "SubnetMask", "PNDeviceName", "MasterIOSystem", "MasterIOSystemNumber" },
+                            sql: "SELECT device, interface_item, subnet, ip_address, subnet_mask, pn_device_name, master_io_system, master_io_system_number FROM interfaces ORDER BY id;",
+                            map: r => new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6), Text(r, 7) }),
                     });
 
                     result.FileCounts.Add(new DbFileCount

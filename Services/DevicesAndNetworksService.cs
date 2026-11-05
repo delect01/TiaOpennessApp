@@ -49,13 +49,15 @@ namespace TiaOpennessApp.Services
                                 break;
                         }
 
+                        IoSystem? masterIoSystem = GetMasterIoSystem(netIf);
                         info.Interfaces.Add(new NetworkInterfaceInfo
                         {
                             InterfaceName = item.Name,
                             InterfaceType = node?.NodeType.ToString() ?? GetInterfaceTypeName(item),
                             IpAddress = GetItemIp(item, netIf, node),
                             Subnet = node?.ConnectedSubnet?.Name ?? "Not connected",
-                            MasterIoSystem = GetMasterIoSystem(item, node) ?? string.Empty,
+                            MasterIoSystem = SafeIoSystemName(masterIoSystem) ?? string.Empty,
+                            MasterIoSystemNumber = SafeIoSystemNumber(masterIoSystem),
                             SubnetMask = GetItemSubnetMask(item, netIf, node),
                             PnDeviceName = GetPnDeviceName(item, netIf, node),
                         });
@@ -134,7 +136,7 @@ namespace TiaOpennessApp.Services
                     string conn = lastLine ? "└── " : "├── ";
                     string master = string.IsNullOrEmpty(iface.MasterIoSystem)
                         ? string.Empty
-                        : $"  Master: {iface.MasterIoSystem}";
+                        : $"  Master: {iface.MasterIoSystem}" + (iface.MasterIoSystemNumber.HasValue ? $" ({iface.MasterIoSystemNumber})" : string.Empty);
                     Console.WriteLine($"{dIndent}{conn}{iface.InterfaceName} ({iface.InterfaceType})  {iface.IpAddress}  @ {iface.Subnet}{master}");
                 }
 
@@ -355,16 +357,46 @@ namespace TiaOpennessApp.Services
             return string.Empty;
         }
 
-        private static string? GetMasterIoSystem(DeviceItem item, Node? node)
+        /// <summary>
+        /// Nom de l'IO system de la interfície: el que és seu si és controlador,
+        /// o al qual està connectada si és IO device. Null si no en té cap.
+        /// (El nom determina la constant de sistema "Local~&lt;IO system&gt;".)
+        /// </summary>
+        private static IoSystem? GetMasterIoSystem(NetworkInterface netIf)
         {
             try
             {
-                object? ioSystem = (item as IEngineeringObject)?.GetAttribute("IOSystem");
-                if (ioSystem is IEngineeringObject io)
-                    return io.GetAttribute("Name") as string;
+                foreach (IoController controller in netIf.IoControllers)
+                {
+                    if (controller.IoSystem != null)
+                        return controller.IoSystem;
+                }
             }
             catch { }
-            return node?.ConnectedSubnet?.Name;
+
+            try
+            {
+                foreach (IoConnector connector in netIf.IoConnectors)
+                {
+                    if (connector.ConnectedToIoSystem != null)
+                        return connector.ConnectedToIoSystem;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private static string? SafeIoSystemName(IoSystem? ioSystem)
+        {
+            try { return ioSystem?.Name; }
+            catch { return null; }
+        }
+
+        private static int? SafeIoSystemNumber(IoSystem? ioSystem)
+        {
+            try { return ioSystem?.Number; }
+            catch { return null; }
         }
 
         private static string? GetTypeName(object obj)

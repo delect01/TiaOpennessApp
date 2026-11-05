@@ -185,6 +185,32 @@ namespace TiaOpennessApp.Services
             catch { return null; }
         }
 
+        private static DeviceItem? FindSingleItemWithAddress(DeviceItem root, char area)
+        {
+            var matches = new List<DeviceItem>();
+            void Walk(DeviceItem item)
+            {
+                foreach (DeviceItem child in item.DeviceItems)
+                {
+                    try
+                    {
+                        foreach (Address address in child.Addresses)
+                        {
+                            if (IoTypeOf(address.IoType) == area)
+                            {
+                                matches.Add(child);
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                    Walk(child);
+                }
+            }
+            Walk(root);
+            return matches.Count == 1 ? matches[0] : null;
+        }
+
         private static DeviceItem? FindItemByName(DeviceItem root, string name)
         {
             foreach (DeviceItem child in root.DeviceItems)
@@ -248,6 +274,12 @@ namespace TiaOpennessApp.Services
             if (!string.IsNullOrWhiteSpace(subModuleName))
             {
                 target = FindItemByName(module, subModuleName!);
+                if (target == null && string.Equals(subModuleName, moduleName, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Submòdul homònim del mòdul: TIA el pot haver anomenat diferent
+                    // en crear-lo. Agafa l'únic item sota el mòdul amb adreça del tipus.
+                    target = FindSingleItemWithAddress(module, FirstChar(ioType));
+                }
                 if (target == null)
                     return new AddressResolution { Error = $"Submòdul '{subModuleName}' no trobat sota el mòdul '{moduleName}'." };
             }

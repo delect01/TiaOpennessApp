@@ -28,6 +28,7 @@ namespace TiaOpennessApp.Services
         public const string SubnetMask = "SubnetMask";
         public const string PnDeviceName = "PNDeviceName";
         public const string MasterIoSystem = "MasterIOSystem";
+        public const string MasterIoSystemNumber = "MasterIOSystemNumber";
         public const string TagTable = "TagTable";
         public const string Type = "Type";
         public const string Address = "Address";
@@ -49,7 +50,7 @@ namespace TiaOpennessApp.Services
         public static readonly string[] DevicesColumns = { DeviceName, Group, TypeKey, Firmware, Comment };
         public static readonly string[] ModulesColumns = { Device, ModuleName, Slot, TypeKey, Comment };
         public static readonly string[] SubnetsColumns = { Name, SubnetType };
-        public static readonly string[] InterfacesColumns = { Device, InterfaceItem, Subnet, IpAddress, SubnetMask, PnDeviceName, MasterIoSystem };
+        public static readonly string[] InterfacesColumns = { Device, InterfaceItem, Subnet, IpAddress, SubnetMask, PnDeviceName, MasterIoSystem, MasterIoSystemNumber };
         public static readonly string[] IoTagsColumns = { Device, IoDevice, ModuleName, SubModuleName, TagTable, Name, Type, Address, Comment };
         public static readonly string[] ModuleAddressesColumns = { Device, ModuleName, SubModuleName, TypeIdentifier, IoType, StartAddress, Length };
         public static readonly string[] BlocksColumns =

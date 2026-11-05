@@ -602,6 +602,17 @@ TiaOpennessApp --export-blocks <projectPath> <outDocsDir> [deviceFilter]
   d'usuari): s'exporten a `tags/<Device>/<grup>/<Taula>.xml` amb
   `Kind=TagTable`. El codi fa servir tags de memòria (`%M`), constants, etc.,
   i sense ells hi ha errors d'importació (p. ex. `OPEN DB [MW12]`) i de compilació.
+- **System blocks**: dels grups de sistema (p. ex. *Program resources*) només
+  s'exporten els **DB** (instància única de `TON`, `R_TRIG`...: `IEC_Timer_0_DB`),
+  amb `GroupPath = [System]/<grup>`. En importar van al mateix grup de sistema si
+  existeix al template, o a l'arrel de *Program blocks*. Els FB/FC de sistema els
+  afegeix TIA en compilar.
+- Les **constants de sistema** (`Local~PROFINET_IO-System`, HW IDs...) no
+  s'exporten: TIA les genera del maquinari. Perquè coincideixin, el nom de l'IO
+  system es copia a `Interfaces.csv` (`MasterIOSystem`) amb el seu número
+  (`MasterIOSystemNumber`, p. ex. 100/101). El número identifica cada IO system
+  quan n'hi ha diversos amb el mateix nom (una CPU amb dues interfícies
+  controladores): cada IO device es connecta al del seu número.
 
 **Regles**:
 
