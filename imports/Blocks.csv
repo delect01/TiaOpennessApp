@@ -48,10 +48,14 @@ CPU51,2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP,Type,U
 CPU51,2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP,Type,UDT_ROBOT_OUT_EQC,,,,UDT,,,,,types/CPU51/2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP/UDT_ROBOT_OUT_EQC.xml
 CPU51,2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP,Type,UDT_ROBOTS_ETHIP,,,,UDT,,,,,types/CPU51/2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP/UDT_ROBOTS_ETHIP.xml
 CPU51,2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP,Type,UDT_ROBOT_OUT_WITHOUT_UI,,,,UDT,,,,,types/CPU51/2_SPECIFIC/UDT_ROBOT_FANUC_Ri30B+/UDT_ROBOT_FANUC_Ri308+_ETHERNETIP/UDT_ROBOT_OUT_WITHOUT_UI.xml
+CPU51,0_SAFETY,Type,F-I/O module_INPUT,,,,UDT,,,,,types/CPU51/0_SAFETY/F-I_O module_INPUT.xml
+CPU51,0_SAFETY,Type,F-I/O module_OUTPUT,,,,UDT,,,,,types/CPU51/0_SAFETY/F-I_O module_OUTPUT.xml
 CPU51,,TagTable,Marcas Standar S7-1515,,,,TagTable,,,(default),"32 tags, 0 constants",tags/CPU51/Marcas Standar S7-1515.xml
-CPU51,,TagTable,03PN,,,,TagTable,,,,"160 tags, 0 constants",tags/CPU51/03PN.xml
-CPU51,,TagTable,30PN,,,,TagTable,,,,"48 tags, 0 constants",tags/CPU51/30PN.xml
-CPU51,,TagTable,25PN,,,,TagTable,,,,"240 tags, 0 constants",tags/CPU51/25PN.xml
+CPU51,,TagTable,03PN,,,,TagTable,,,,"202 tags, 0 constants",tags/CPU51/03PN.xml
+CPU51,,TagTable,30PN,,,,TagTable,,,,"136 tags, 0 constants",tags/CPU51/30PN.xml
+CPU51,,TagTable,25PN,,,,TagTable,,,,"352 tags, 0 constants",tags/CPU51/25PN.xml
+CPU51,,TagTable,122PN_F-I/O module,,,,TagTable,,,,"48 tags, 0 constants",tags/CPU51/122PN_F-I_O module.xml
+CPU51,,TagTable,123PN_F-I/O module,,,,TagTable,,,,"16 tags, 0 constants",tags/CPU51/123PN_F-I_O module.xml
 CPU51,1_BASE/1_OB,Block,OB_IO_ACCESS_ERROR,,122,True,OB,LAD,Optimized,ERROR DE ACCESO MODULO I/O,,blocks/CPU51/1_BASE/1_OB/OB_IO_ACCESS_ERROR.xml
 CPU51,1_BASE/1_OB,Block,OB_PROGRAMMING_ERROR,,121,True,OB,LAD,Optimized,Error de programación,,blocks/CPU51/1_BASE/1_OB/OB_PROGRAMMING_ERROR.xml
 CPU51,1_BASE/1_OB,Block,OB_NEW_START,,100,True,OB,LAD,Optimized,PUESTA EN MARCHHA,,blocks/CPU51/1_BASE/1_OB/OB_NEW_START.xml
@@ -356,6 +360,9 @@ CPU51,2_ZONES/0_GREASERS/3_DB,Block,ENG4,,2004,False,InstanceDB,DB,Optimized,,,b
 CPU51,2_ZONES/0_GREASERS/3_DB,Block,ENG5,,2005,False,InstanceDB,DB,Optimized,,,blocks/CPU51/2_ZONES/0_GREASERS/3_DB/ENG5.xml
 CPU51,2_ZONES/0_GREASERS/3_DB,Block,ENG7,,2007,False,InstanceDB,DB,Optimized,,,blocks/CPU51/2_ZONES/0_GREASERS/3_DB/ENG7.xml
 CPU51,2_ZONES/0_GREASERS/3_DB,Block,ENG8,,2028,False,InstanceDB,DB,Optimized,,,blocks/CPU51/2_ZONES/0_GREASERS/3_DB/ENG8.xml
+CPU51,0_SAFETY/2_FB,Block,Main_Safety_RTG1,,0,False,FB,F_FBD,Optimized,,,blocks/CPU51/0_SAFETY/2_FB/Main_Safety_RTG1.xml
+CPU51,0_SAFETY/2_FB,Block,F-I/O module configuration,,7,True,FB,F_LAD,Optimized,,,blocks/CPU51/0_SAFETY/2_FB/F-I_O module configuration.xml
+CPU51,0_SAFETY/3_DB,Block,Main_Safety_RTG1_DB,,4,True,InstanceDB,F_DB,Optimized,,,blocks/CPU51/0_SAFETY/3_DB/Main_Safety_RTG1_DB.xml
 CPU51,[System]/System blocks/Program resources,Block,IEC_Timer_0_DB,,2,True,InstanceDB,DB,Optimized,,,blocks/CPU51/[System]/System blocks/Program resources/IEC_Timer_0_DB.xml
 CPU51,[System]/System blocks/Program resources,Block,IEC_Timer_1_DB,,71,True,InstanceDB,DB,Optimized,,,blocks/CPU51/[System]/System blocks/Program resources/IEC_Timer_1_DB.xml
 CPU51,[System]/System blocks/Program resources,Block,IEC_Timer_2_DB,,72,True,InstanceDB,DB,Optimized,,,blocks/CPU51/[System]/System blocks/Program resources/IEC_Timer_2_DB.xml

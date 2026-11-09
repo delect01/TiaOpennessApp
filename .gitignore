@@ -2741,3 +2741,27 @@ imports/ModuleAddresses.csv
 imports/IoTags.csv
 imports/Interfaces.csv
 imports/Devices.csv
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Counter_0_DB_1.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Counter_0_DB_2.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Counter_0_DB_5.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Counter_0_DB_6.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Counter_0_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_0.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_3.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_9.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_10.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_11.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_12.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_13.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_15.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_16.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_17.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB_18.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_0_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_1_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_2_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_3_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_4_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_5_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_6_DB.xml
+imports/blocks/CPU51/\[System]/System blocks/Program resources/IEC_Timer_7_DB.xml
