@@ -220,7 +220,24 @@ namespace TiaOpennessApp.Services
                         string? dbName = Safe(() => group.MainSafetyBlockIDbName);
 
                         // Si TIA ja no recorda el nom, es dedueix dels blocs F importats:
-                        // FB "X" amb DB d'instància "X_DB".
+                        // DB d'instància F importat (InstanceOfName de l'XML) d'un FB F importat;
+                        // si no, FB "X" amb DB d'instància "X_DB".
+                        if (string.IsNullOrWhiteSpace(fbName) || string.IsNullOrWhiteSpace(dbName))
+                        {
+                            foreach (PendingImport d in items.Where(i =>
+                                         string.Equals(i.Spec.BlockType, "InstanceDB", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                string? of = ReadInstanceOfName(d.File.FullName);
+                                if (string.IsNullOrWhiteSpace(of)
+                                    || (!string.IsNullOrWhiteSpace(fbName) && !string.Equals(of, fbName, StringComparison.OrdinalIgnoreCase))
+                                    || !items.Any(f => string.Equals(f.Spec.Name, of, StringComparison.OrdinalIgnoreCase)
+                                                       && string.Equals(f.Spec.BlockType, "FB", StringComparison.OrdinalIgnoreCase)))
+                                    continue;
+                                fbName = of;
+                                dbName = d.Spec.Name;
+                                break;
+                            }
+                        }
                         if (string.IsNullOrWhiteSpace(fbName))
                         {
                             PendingImport? fb = items.FirstOrDefault(p =>
@@ -903,7 +920,70 @@ namespace TiaOpennessApp.Services
             return current;
         }
 
+        private static string? ReadInstanceOfName(string xmlPath)
+        {
+            try
+            {
+                return System.Xml.Linq.XDocument.Load(xmlPath).Descendants()
+                    .FirstOrDefault(e => e.Name.LocalName == "InstanceOfName")?.Value;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex ReadOnlyAttributeError =
+            new System.Text.RegularExpressions.Regex(@"Missing 'ReadOnly' XML attribute for the '([A-Za-z0-9_]+)' attribute");
+
+        /// <summary>
+        /// Import tolerant amb atributs que la CPU destí té com a només lectura
+        /// (p.ex. DBAccessibleFromWebserver): es treuen d'una còpia temporal de l'XML i es reintenta.
+        /// </summary>
         private static IList<PlcBlock> ImportWithRetry(
+            PlcBlockComposition composition,
+            FileInfo file,
+            ImportOptions importOptions,
+            bool allowMissingReferences)
+        {
+            var removed = new HashSet<string>(StringComparer.Ordinal);
+            string? tempPath = null;
+            try
+            {
+                while (true)
+                {
+                    try
+                    {
+                        return ImportWithRetryCore(composition, tempPath == null ? file : new FileInfo(tempPath),
+                            importOptions, allowMissingReferences);
+                    }
+                    catch (Exception ex)
+                    {
+                        var match = ReadOnlyAttributeError.Match(ex.Message);
+                        if (!match.Success || !removed.Add(match.Groups[1].Value) || removed.Count > 5)
+                            throw;
+
+                        System.Xml.Linq.XDocument doc = System.Xml.Linq.XDocument.Load(tempPath ?? file.FullName);
+                        foreach (System.Xml.Linq.XElement e in doc.Descendants()
+                                     .Where(e => removed.Contains(e.Name.LocalName)
+                                                 && e.Parent?.Name.LocalName == "AttributeList"
+                                                 && e.Parent.Parent?.Name.LocalName.StartsWith("SW.", StringComparison.Ordinal) == true)
+                                     .ToList())
+                            e.Remove();
+
+                        tempPath ??= Path.Combine(Path.GetTempPath(), $"tia_imp_{Guid.NewGuid():N}_{file.Name}");
+                        doc.Save(tempPath);
+                    }
+                }
+            }
+            finally
+            {
+                if (tempPath != null)
+                    try { File.Delete(tempPath); } catch { }
+            }
+        }
+
+        private static IList<PlcBlock> ImportWithRetryCore(
             PlcBlockComposition composition,
             FileInfo file,
             ImportOptions importOptions,
