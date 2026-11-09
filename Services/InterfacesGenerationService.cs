@@ -181,6 +181,22 @@ namespace TiaOpennessApp.Services
                 ? "#" + spec.MasterIoSystemNumber.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 : (spec.MasterIoSystem ?? string.Empty).Trim() + "|" + (spec.Subnet ?? string.Empty).Trim();
 
+        private static bool SameIoSystem(IoSystem a, IoSystem b)
+        {
+            try
+            {
+                if (a.Equals(b))
+                    return true;
+                return a.Number == b.Number
+                    && string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(a.Subnet?.Name, b.Subnet?.Name, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static string Describe(IoSystem ioSystem)
         {
             try { return $"{ioSystem.Name} ({ioSystem.Number})"; }
@@ -274,12 +290,20 @@ namespace TiaOpennessApp.Services
 
                 try
                 {
-                    if (ReferenceEquals(connector.ConnectedToIoSystem, target))
+                    // Openness retorna objectes embolcall nous a cada accés:
+                    // ReferenceEquals no serveix, cal comparar per número/nom/subxarxa.
+                    IoSystem? current = connector.ConnectedToIoSystem;
+                    if (current != null && SameIoSystem(current, target))
                     {
                         report.Message = AppendIoStep(report.Message, $"IO: ja assignada al '{Describe(target)}'");
                     }
                     else
                     {
+                        if (current != null)
+                        {
+                            report.Message = AppendIoStep(report.Message, $"desconnectada de '{Describe(current)}'");
+                            connector.DisconnectFromIoSystem();
+                        }
                         connector.ConnectToIoSystem(target);
                         report.Message = AppendIoStep(report.Message, $"assignada al IO system '{Describe(target)}'");
                         report.Connected = true;

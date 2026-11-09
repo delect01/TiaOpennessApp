@@ -5,6 +5,7 @@ using System.Linq;
 using Siemens.Engineering;
 using Siemens.Engineering.Compiler;
 using Siemens.Engineering.HW;
+using Siemens.Engineering.Safety;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
 using Siemens.Engineering.SW.Tags;
@@ -123,15 +124,6 @@ namespace TiaOpennessApp.Services
                 };
                 report.Items.Add(item);
 
-                if (IsSafety(spec))
-                {
-                    // Els blocs F (F_FBD/F_LAD/F_DB) els genera i gestiona TIA amb el
-                    // grup de runtime F; no es poden importar com a blocs estàndard.
-                    item.Action = BlockGenerationAction.Skipped;
-                    item.Note = $"bloc de seguretat ({spec.ProgrammingLanguage}): el gestiona TIA, no s'importa";
-                    continue;
-                }
-
                 try
                 {
                     string filePath = ResolveSourceFile(spec.SourceFile);
@@ -148,7 +140,9 @@ namespace TiaOpennessApp.Services
 
                     // Les taules de variables sempre se sobreescriuen: les del template
                     // (només I/O tags generats) són un subconjunt de les de la font.
-                    if (preExisting && !options.OverrideExisting && !IsTagTable(spec))
+                    // Els blocs F del template (Main_Safety_RTGx per defecte) s'han de
+                    // substituir pels de la font: el programa estàndard en llegeix membres.
+                    if (preExisting && !options.OverrideExisting && !IsTagTable(spec) && !IsSafety(spec))
                     {
                         item.Action = BlockGenerationAction.Skipped;
                         item.Note = "ja existeix (sense override)";
@@ -168,12 +162,342 @@ namespace TiaOpennessApp.Services
             // multiinstància, InstanceDB→FB). Para quan una passada no avança.
             ImportInPasses(pending.Where(p => IsType(p.Spec)).ToList(), report, options, "UDT");
             ImportInPasses(pending.Where(p => IsTagTable(p.Spec)).ToList(), report, options, "taules de variables");
-            ImportInPasses(pending.Where(p => !IsType(p.Spec) && !IsTagTable(p.Spec)).ToList(), report, options, "blocs");
+            ImportInPasses(pending.Where(p => !IsType(p.Spec) && !IsTagTable(p.Spec) && !IsSafety(p.Spec)).ToList(), report, options, "blocs");
+            // Blocs F (F_FBD/F_LAD/F_DB): TIA només n'accepta la importació si el
+            // programa de seguretat no està protegit amb contrasenya. Si els rebutja,
+            // es marquen com a saltats amb el motiu (no com a fallits).
+            var safetyImports = pending.Where(p => IsSafety(p.Spec)).ToList();
+            ImportInPasses(safetyImports, report, options, "blocs de seguretat", failAsSkipped: true);
+
+            // Els blocs F criden instruccions F (ESTOP1, ACK_GL...) amb DB d'instància
+            // única que l'exportació no troba als grups de programa: es creen.
+            CreateMissingSingleInstanceDbs(safetyImports
+                .Where(p => p.Item.Action == BlockGenerationAction.Imported
+                         || p.Item.Action == BlockGenerationAction.Overridden)
+                .ToList());
+
+            // Sobreescriure el bloc principal F trenca l'enllaç del grup de runtime F
+            // ("does not have a valid main safety block"): es torna a crear el grup.
+            RepairRuntimeGroups(safetyImports
+                .Where(p => p.Item.Action == BlockGenerationAction.Imported
+                         || p.Item.Action == BlockGenerationAction.Overridden)
+                .ToList());
 
             if (options.Compile)
                 Compile(softwareByDevice.Values, report);
 
             return report;
+        }
+
+        /// <summary>
+        /// Torna a crear cada grup de runtime F apuntant al bloc principal F (i al
+        /// seu DB d'instància) importats. MainSafetyBlockName és de només lectura,
+        /// així que l'única manera de reassignar-lo és esborrar i crear el grup,
+        /// conservant-ne els temps de cicle i els blocs pre/post.
+        /// </summary>
+        private void RepairRuntimeGroups(List<PendingImport> imported)
+        {
+            foreach (var bySoftware in imported.GroupBy(p => p.Software))
+            {
+                PlcSoftware software = bySoftware.Key;
+                List<PendingImport> items = bySoftware.ToList();
+                string device = items[0].Spec.Device;
+
+                SafetyAdministration? admin = GetSafetyAdministration(software);
+                if (admin == null)
+                {
+                    Console.WriteLine($"  (avís seguretat) {device}: no s'ha pogut obtenir SafetyAdministration; " +
+                                      "assigna el bloc principal F al grup de runtime a mà.");
+                    continue;
+                }
+
+                foreach (RuntimeGroup group in admin.RuntimeGroups.ToList())
+                {
+                    string groupName = group.Name;
+                    try
+                    {
+                        string? fbName = Safe(() => group.MainSafetyBlockName);
+                        string? dbName = Safe(() => group.MainSafetyBlockIDbName);
+
+                        // Si TIA ja no recorda el nom, es dedueix dels blocs F importats:
+                        // FB "X" amb DB d'instància "X_DB".
+                        if (string.IsNullOrWhiteSpace(fbName))
+                        {
+                            PendingImport? fb = items.FirstOrDefault(p =>
+                                string.Equals(p.Spec.BlockType, "FB", StringComparison.OrdinalIgnoreCase) &&
+                                items.Any(d => string.Equals(d.Spec.Name, p.Spec.Name + "_DB", StringComparison.OrdinalIgnoreCase)));
+                            fbName = fb?.Spec.Name;
+                        }
+                        if (string.IsNullOrWhiteSpace(dbName) && !string.IsNullOrWhiteSpace(fbName))
+                            dbName = fbName + "_DB";
+
+                        if (string.IsNullOrWhiteSpace(fbName) || string.IsNullOrWhiteSpace(dbName))
+                        {
+                            Console.WriteLine($"  (avís seguretat) {device}/{groupName}: no es pot deduir el bloc principal F.");
+                            continue;
+                        }
+
+                        // Només cal si el bloc principal o el seu DB s'han importat ara.
+                        if (!items.Any(p => string.Equals(p.Spec.Name, fbName, StringComparison.OrdinalIgnoreCase)
+                                         || string.Equals(p.Spec.Name, dbName, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+
+                        int? maxCycle = Safe<int?>(() => group.MaximumCycleTime);
+                        int? warnCycle = Safe<int?>(() => group.WarnCycleTime);
+                        string? infoDb = Safe(() => group.InfoDbName);
+                        string? pre = Safe(() => group.PreProcessingName);
+                        string? post = Safe(() => group.PostProcessingName);
+
+                        group.Delete();
+
+                        // Per si esborrar el grup s'ha endut els blocs, es tornen a importar.
+                        PlcBlock? fbBlock = FindBlock(software, fbName!) ?? Reimport(items, fbName!);
+                        PlcBlock? dbBlock = FindBlock(software, dbName!) ?? Reimport(items, dbName!);
+                        if (fbBlock == null || dbBlock == null)
+                            throw new InvalidOperationException(
+                                $"no es troba '{(fbBlock == null ? fbName : dbName)}' després d'esborrar el grup");
+
+                        RuntimeGroup created = admin.RuntimeGroups.Create(groupName, fbBlock, dbBlock);
+                        TrySet(() => { if (maxCycle.HasValue) created.MaximumCycleTime = maxCycle.Value; });
+                        TrySet(() => { if (warnCycle.HasValue) created.WarnCycleTime = warnCycle.Value; });
+                        TrySet(() => { if (!string.IsNullOrEmpty(infoDb)) created.InfoDbName = infoDb; });
+                        TrySet(() => { if (!string.IsNullOrEmpty(pre)) created.PreProcessingName = pre; });
+                        TrySet(() => { if (!string.IsNullOrEmpty(post)) created.PostProcessingName = post; });
+
+                        Console.WriteLine($"  Grup de runtime F '{groupName}' refet amb {fbName} / {dbName}.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  (avís seguretat) {device}/{groupName}: no s'ha pogut refer el grup " +
+                                          $"de runtime F: {ShortMessage(ex)}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Llegeix el SimaticML de cada bloc codi importat i, per a cada crida amb
+        /// instància global (Part/CallInfo amb &lt;Instance Scope="GlobalVariable"&gt;),
+        /// crea el DB d'instància si no existeix al PLC.
+        /// </summary>
+        private static void CreateMissingSingleInstanceDbs(List<PendingImport> imported)
+        {
+            foreach (var bySoftware in imported.GroupBy(p => p.Software))
+            {
+                PlcSoftware software = bySoftware.Key;
+                var calls = new Dictionary<string, (string InstanceOf, string? Version, PendingImport Caller)>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (PendingImport p in bySoftware.Where(i =>
+                             !string.Equals(i.Spec.BlockType, "InstanceDB", StringComparison.OrdinalIgnoreCase)
+                             && !string.Equals(i.Spec.BlockType, "GlobalDB", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        foreach (var (dbName, instanceOf, version) in ReadGlobalInstanceCalls(p.File.FullName))
+                            if (!calls.ContainsKey(dbName))
+                                calls[dbName] = (instanceOf, version, p);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  (avís seguretat) no s'ha pogut llegir {p.File.Name}: {ShortMessage(ex)}");
+                    }
+                }
+
+                int created = 0;
+                var failures = new List<string>();
+                foreach (var entry in calls)
+                {
+                    if (FindBlock(software, entry.Key) != null)
+                        continue;
+
+                    PendingImport caller = entry.Value.Caller;
+                    // Al mateix grup que el DB d'instància del bloc F (p.ex. 0_SAFETY/3_DB) si n'hi ha.
+                    PendingImport? siblingDb = bySoftware.FirstOrDefault(i =>
+                        string.Equals(i.Spec.BlockType, "InstanceDB", StringComparison.OrdinalIgnoreCase));
+                    string groupPath = (siblingDb ?? caller).Spec.GroupPath ?? string.Empty;
+
+                    PlcBlockComposition target = TargetBlocks(software, groupPath);
+                    string? error;
+                    if (string.IsNullOrEmpty(entry.Value.Version))
+                    {
+                        try
+                        {
+                            // Funciona si l'FB instanciat és un bloc del projecte.
+                            target.CreateInstanceDB(entry.Key, true, 1, entry.Value.InstanceOf);
+                            created++;
+                            continue;
+                        }
+                        catch (Exception ex)
+                        {
+                            error = ShortMessage(ex);
+                        }
+                    }
+                    else
+                    {
+                        error = $"instrucció de llibreria v{entry.Value.Version}";
+                    }
+
+                    // Instruccions de llibreria (ESTOP1, ACK_GL, FDBACK...): no són blocs del
+                    // projecte; s'importa un SimaticML mínim del DB i TIA hi posa la interfície.
+                    string? importError = ImportSyntheticInstanceDb(target, entry.Key, entry.Value.InstanceOf, entry.Value.Version);
+                    if (importError == null)
+                        created++;
+                    else
+                        failures.Add($"{entry.Key} ({entry.Value.InstanceOf}): {error} | import: {importError}");
+                }
+
+                if (created > 0 || failures.Count > 0)
+                    Console.WriteLine($"  DB d'instància de blocs F: {created} creats, {failures.Count} no creats.");
+                foreach (string f in failures.Take(10))
+                    Console.WriteLine($"    (avís seguretat) {f}");
+                if (failures.Count > 10)
+                    Console.WriteLine($"    ... i {failures.Count - 10} més.");
+            }
+        }
+
+        /// <summary>
+        /// Importa un DB d'instància F generat (sense interfície o amb seccions buides).
+        /// Retorna null si ha anat bé, o l'últim error.
+        /// </summary>
+        private static string? ImportSyntheticInstanceDb(PlcBlockComposition target, string dbName, string instanceOf, string? version)
+        {
+            const string emptyInterface =
+                "<Interface><Sections xmlns=\"http://www.siemens.com/automation/Openness/SW/Interface/v5\" /></Interface>";
+            string Esc(string v) => System.Security.SecurityElement.Escape(v);
+
+            // Mateix format que exporta TIA per als DB d'instàncies de sistema (p.ex. IEC_Timer_0_DB):
+            // <Namespace /> + OfSystemLibElement/OfSystemLibVersion, sense InstanceOfType.
+            bool sysLib = !string.IsNullOrEmpty(version);
+            var variants = sysLib
+                ? new[] { (Iface: "", Lang: "F_DB"), ("", "DB"), (emptyInterface, "F_DB"), (emptyInterface, "DB") }
+                : new[] { (Iface: "", Lang: "F_DB"), (emptyInterface, "F_DB") };
+
+            var errors = new List<string>();
+            foreach (var (iface, lang) in variants)
+            {
+                string path = Path.Combine(Path.GetTempPath(), $"tia_fdb_{Guid.NewGuid():N}.xml");
+                try
+                {
+                    var xml = new System.Text.StringBuilder();
+                    xml.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<Document>\n  <Engineering version=\"V21\" />\n");
+                    xml.Append("  <SW.Blocks.InstanceDB ID=\"0\">\n    <AttributeList>\n");
+                    xml.Append("      <AutoNumber>true</AutoNumber>\n");
+                    xml.Append($"      <InstanceOfName>{Esc(instanceOf)}</InstanceOfName>\n");
+                    if (!sysLib)
+                        xml.Append("      <InstanceOfType>FB</InstanceOfType>\n");
+                    if (iface.Length > 0)
+                        xml.Append($"      {iface}\n");
+                    xml.Append($"      <Name>{Esc(dbName)}</Name>\n");
+                    xml.Append("      <Namespace />\n");
+                    if (sysLib)
+                    {
+                        xml.Append($"      <OfSystemLibElement>{Esc(instanceOf)}</OfSystemLibElement>\n");
+                        xml.Append($"      <OfSystemLibVersion>{Esc(version!)}</OfSystemLibVersion>\n");
+                    }
+                    xml.Append($"      <ProgrammingLanguage>{lang}</ProgrammingLanguage>\n");
+                    xml.Append("    </AttributeList>\n  </SW.Blocks.InstanceDB>\n</Document>\n");
+
+                    File.WriteAllText(path, xml.ToString(), new System.Text.UTF8Encoding(true));
+                    ImportWithRetry(target, new FileInfo(path), ImportOptions.None, true);
+                    return null;
+                }
+                catch (Exception ex)
+                {
+                    string msg = ShortMessage(ex);
+                    if (!errors.Contains(msg))
+                        errors.Add(msg);
+                }
+                finally
+                {
+                    try { File.Delete(path); } catch { }
+                }
+            }
+            return string.Join(" || ", errors);
+        }
+
+        /// <summary>(nom del DB, instrucció/bloc instanciat, versió si és instrucció de llibreria) de les crides amb instància global.</summary>
+        private static IEnumerable<(string DbName, string InstanceOf, string? Version)> ReadGlobalInstanceCalls(string xmlPath)
+        {
+            System.Xml.Linq.XDocument doc = System.Xml.Linq.XDocument.Load(xmlPath);
+            foreach (System.Xml.Linq.XElement instance in doc.Descendants().Where(e => e.Name.LocalName == "Instance"))
+            {
+                if (!string.Equals((string?)instance.Attribute("Scope"), "GlobalVariable", StringComparison.Ordinal))
+                    continue;
+
+                // <Part Name="ESTOP1"><Instance/></Part> o <CallInfo Name="FB_x"><Instance/></CallInfo>
+                System.Xml.Linq.XElement? owner = instance.Parent;
+                if (owner == null || (owner.Name.LocalName != "Part" && owner.Name.LocalName != "CallInfo"))
+                    continue;
+
+                string? instanceOf = (string?)owner.Attribute("Name");
+                string? dbName = instance.Elements().FirstOrDefault(e => e.Name.LocalName == "Component")
+                    ?.Attribute("Name")?.Value;
+                if (!string.IsNullOrWhiteSpace(instanceOf) && !string.IsNullOrWhiteSpace(dbName))
+                    yield return (dbName!, instanceOf!, (string?)owner.Attribute("Version"));
+            }
+        }
+
+        private PlcBlock? Reimport(List<PendingImport> items, string name)
+        {
+            PendingImport? p = items.FirstOrDefault(i => string.Equals(i.Spec.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (p == null)
+                return null;
+            ImportWithRetry(TargetBlocks(p.Software, p.Spec.GroupPath), p.File, ImportOptions.None, false);
+            return FindBlock(p.Software, name);
+        }
+
+        private static PlcBlock? FindBlock(PlcSoftware software, string name) =>
+            FindBlockOwner(software.BlockGroup, name)?.Blocks.Find(name)
+            ?? FindSystemBlock(software.BlockGroup.SystemBlockGroups, name);
+
+        private static PlcBlock? FindSystemBlock(PlcSystemBlockGroupComposition groups, string name)
+        {
+            try
+            {
+                foreach (PlcSystemBlockGroup group in groups)
+                {
+                    PlcBlock? block = Safe(() => group.Blocks.Find(name)) ?? FindSystemBlock(group.Groups, name);
+                    if (block != null)
+                        return block;
+                }
+            }
+            catch { /* grup de sistema no accessible */ }
+            return null;
+        }
+
+        private static SafetyAdministration? GetSafetyAdministration(PlcSoftware software)
+        {
+            SafetyAdministration? admin = Safe(() => ((IEngineeringServiceProvider)software).GetService<SafetyAdministration>());
+            if (admin != null)
+                return admin;
+
+            // El servei també penja del DeviceItem de la CPU (pare del SoftwareContainer).
+            IEngineeringObject? parent = software.Parent;
+            while (parent != null)
+            {
+                if (parent is IEngineeringServiceProvider provider)
+                {
+                    admin = Safe(() => provider.GetService<SafetyAdministration>());
+                    if (admin != null)
+                        return admin;
+                }
+                if (parent is Device)
+                    break;
+                parent = parent.Parent;
+            }
+            return null;
+        }
+
+        private static T? Safe<T>(Func<T> getter)
+        {
+            try { return getter(); }
+            catch { return default; }
+        }
+
+        private static void TrySet(Action setter)
+        {
+            try { setter(); }
+            catch { /* atribut no modificable en aquesta CPU: es manté el valor per defecte */ }
         }
 
         private sealed class PendingImport
@@ -200,7 +524,8 @@ namespace TiaOpennessApp.Services
             List<PendingImport> pending,
             BlocksGenerationReport report,
             BlocksGenerationOptions options,
-            string label)
+            string label,
+            bool failAsSkipped = false)
         {
             int pass = 0;
             while (pending.Count > 0)
@@ -221,7 +546,9 @@ namespace TiaOpennessApp.Services
                                 p.File, importOptions, options.AllowMissingReferences).Count
                             : IsTagTable(p.Spec)
                                 ? ImportTagTable(p, importOptions)
-                                : ImportWithRetry(TargetBlocks(p.Software, p.Spec.GroupPath),
+                                : ImportWithRetry(
+                                    (IsSafety(p.Spec) ? FindBlockOwner(p.Software.BlockGroup, p.Spec.Name)?.Blocks : null)
+                                        ?? TargetBlocks(p.Software, p.Spec.GroupPath),
                                     p.File, importOptions, options.AllowMissingReferences).Count;
 
                         p.Item.ImportedCount = count;
@@ -240,7 +567,18 @@ namespace TiaOpennessApp.Services
                 if (succeeded == 0)
                 {
                     foreach (PendingImport p in failed)
-                        Fail(report, p.Spec, p.Item, p.LastError ?? "Error desconegut.");
+                    {
+                        if (failAsSkipped)
+                        {
+                            p.Item.Action = BlockGenerationAction.Skipped;
+                            p.Item.Note = $"bloc de seguretat ({p.Spec.ProgrammingLanguage}) no importat: " +
+                                          (p.LastError ?? "error desconegut");
+                        }
+                        else
+                        {
+                            Fail(report, p.Spec, p.Item, p.LastError ?? "Error desconegut.");
+                        }
+                    }
                     return;
                 }
 
@@ -287,8 +625,26 @@ namespace TiaOpennessApp.Services
                     || software.BlockGroup.Blocks.Find(spec.Name) != null;
             }
 
+            // Blocs F: el template ja en porta (Main_Safety_RTGx) en qualsevol grup.
+            if (IsSafety(spec))
+                return FindBlockOwner(software.BlockGroup, spec.Name) != null;
+
             PlcBlockGroup? group = FindBlockGroup(software.BlockGroup, spec.GroupPath);
             return group?.Blocks.Find(spec.Name) != null;
+        }
+
+        /// <summary>Grup (a qualsevol nivell) que conté un bloc amb aquest nom.</summary>
+        private static PlcBlockGroup? FindBlockOwner(PlcBlockGroup group, string name)
+        {
+            if (group.Blocks.Find(name) != null)
+                return group;
+            foreach (PlcBlockUserGroup child in group.Groups)
+            {
+                PlcBlockGroup? found = FindBlockOwner(child, name);
+                if (found != null)
+                    return found;
+            }
+            return null;
         }
 
         /// <summary>

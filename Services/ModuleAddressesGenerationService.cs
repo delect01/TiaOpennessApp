@@ -33,6 +33,10 @@ namespace TiaOpennessApp.Services
             new Dictionary<string, Device?>(StringComparer.OrdinalIgnoreCase);
 
         private int _parkCursor = 10000;
+        private const int MaxParkAttempts = 200;
+
+        /// <summary>Últim error d'Openness en intentar moure una adreça.</summary>
+        public string? LastParkError { get; private set; }
 
         public ModuleAddressesGenerationService(Project project)
         {
@@ -106,12 +110,18 @@ namespace TiaOpennessApp.Services
                 }
             }
 
+            int alreadyOk = reports.Count(r => r.Applied);
+            int unresolved = reports.Count(r => r.Error != null);
+            Console.WriteLine($"  {addresses.Count} adreces: {alreadyOk} ja coincideixen, {pending.Count} a ajustar, {unresolved} no resoltes.");
+
             // Fase A: aparcar en una zona alta lliure (per probe, comença a 10000)
             // totes les adreces pendents per alliberar el bloc dens auto-assignat.
+            if (pending.Count > 0)
+                Console.WriteLine($"  Fase A: alliberant {pending.Count} adreça(es)...");
             foreach (var (report, address, _) in pending)
             {
                 if (!TryParkAddress(address))
-                    report.Error = $"No s'ha pogut alliberar la zona per a '{report.ModuleName}' (cap lloc lliure).";
+                    report.Error = $"No s'ha pogut moure l'adreça de '{report.ModuleName}' a la zona temporal: {LastParkError}";
             }
 
             // Fase A2 (global): aparcar qualsevol altra adreça del projecte (mòduls no
@@ -119,7 +129,10 @@ namespace TiaOpennessApp.Services
             // que ocupi un rang objectiu. S'exceptuen les adreces que ja estan en un
             // valor objectiu (les "ja coincidia"), que no s'han de tocar.
             var pendingSet = new HashSet<Address>(pending.Select(p => p.Address), new ReferenceComparer<Address>());
-            foreach (Address occupied in EnumerateAllProjectAddresses())
+            List<Address> allAddresses = pending.Count > 0 ? EnumerateAllProjectAddresses() : new List<Address>();
+            if (pending.Count > 0)
+                Console.WriteLine($"  Fase A2: revisant {allAddresses.Count} adreces del projecte per col·lisions...");
+            foreach (Address occupied in allAddresses)
             {
                 if (pendingSet.Contains(occupied))
                     continue;
@@ -141,6 +154,8 @@ namespace TiaOpennessApp.Services
             }
 
             // Fase B: assignar els valors finals (esparsos) ja sense conflictes.
+            if (pending.Count > 0)
+                Console.WriteLine("  Fase B: assignant les adreces finals...");
             foreach (var (report, address, target) in pending)
             {
                 if (report.Error != null)
@@ -326,9 +341,15 @@ namespace TiaOpennessApp.Services
         /// </summary>
         private bool TryParkAddress(Address address)
         {
+            // Cada intent fallit és una excepció d'Openness (lenta): abans hi havia
+            // fins a 4000 intents per adreça i semblava que l'app es penjava.
+            // Límit d'intents, i si l'error no és de col·lisió (sempre el mateix
+            // missatge des del principi, p. ex. adreça no modificable) es para aviat.
             int len = Math.Max(2, SafeNumber(address.Length));
             if (len % 2 != 0) len++;
-            for (int guard = 0; guard < 4000; guard++)
+            string? firstError = null;
+            int sameErrorCount = 0;
+            for (int guard = 0; guard < MaxParkAttempts; guard++)
             {
                 int candidate = _parkCursor;
                 _parkCursor = candidate + len;
@@ -338,7 +359,15 @@ namespace TiaOpennessApp.Services
                         address.StartAddress = candidate;
                     return true;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    LastParkError = ex.Message;
+                    if (firstError == null)
+                        firstError = ex.Message;
+                    if (string.Equals(firstError, ex.Message, StringComparison.Ordinal) && ++sameErrorCount >= 10
+                        && guard + 1 == sameErrorCount)
+                        return false;
+                }
             }
             return false;
         }

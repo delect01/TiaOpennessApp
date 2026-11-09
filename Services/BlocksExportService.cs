@@ -151,6 +151,7 @@ namespace TiaOpennessApp.Services
             // el codi fa servir tags de memòria/constants que no són a IoTags.csv.
             ExportTagTables(docsDir, deviceFilter, report, usedRelativePaths);
 
+            int protectedSystemBlocks = 0;
             foreach (BlockInventoryItem item in inspection.Blocks)
             {
                 // Blocs de sistema: només els DB (instància única de TON, R_TRIG...).
@@ -158,10 +159,26 @@ namespace TiaOpennessApp.Services
                 if (IsSystemGroupPath(item.GroupPath) && !IsExportableSystemBlock(item.BlockType))
                     continue;
 
+                // De "STEP 7 Safety" només els DB d'instància (ESTOP1_x, ACK_GL_DB...):
+                // la resta de blocs F de sistema els regenera TIA en compilar.
+                if (IsSystemGroupPath(item.GroupPath)
+                    && item.GroupPath.IndexOf("Safety", StringComparison.OrdinalIgnoreCase) >= 0
+                    && !string.Equals(item.BlockType, "InstanceDB", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 string label = FormatItem(item);
                 if (item.Error != null)
                 {
                     report.Errors.Add($"{label}: {item.Error}");
+                    continue;
+                }
+
+                if (item.IsKnowHowProtected && IsSystemGroupPath(item.GroupPath))
+                {
+                    // Blocs F de sistema (DB d'ESTOP1/ACK_GL, Compiler blocks, F-I/O DBs):
+                    // TIA els protegeix i no es poden exportar; només es compten.
+                    report.Skipped++;
+                    protectedSystemBlocks++;
                     continue;
                 }
 
@@ -205,6 +222,9 @@ namespace TiaOpennessApp.Services
                 }
             }
 
+            if (protectedSystemBlocks > 0)
+                report.Errors.Add($"{protectedSystemBlocks} bloc(s) F de sistema protegits (STEP 7 Safety) no exportats: " +
+                                  "TIA no en permet l'exportació. Els DB d'instància ESTOP1/ACK_GL/FDBACK es recreen en generar.");
             return report;
         }
 
@@ -565,16 +585,37 @@ namespace TiaOpennessApp.Services
             string.Equals(blockType, "InstanceDB", StringComparison.OrdinalIgnoreCase)
             || string.Equals(blockType, "GlobalDB", StringComparison.OrdinalIgnoreCase);
 
+        private static string SafeName(PlcSystemBlockGroup group)
+        {
+            try { return group.Name; } catch { return "?"; }
+        }
+
         private static void WalkSystemGroups(
             PlcSystemBlockGroupComposition groups,
             string parentPath,
             string deviceName,
             Action<BlockInventoryItem> add)
         {
-            foreach (PlcSystemBlockGroup group in groups)
+            List<PlcSystemBlockGroup> list;
+            try { list = groups.ToList(); }
+            catch (Exception ex)
             {
-                string path = parentPath + "/" + group.Name;
-                foreach (PlcBlock block in group.Blocks)
+                Console.WriteLine($"  (avís) {deviceName} {parentPath}: no es poden llistar els subgrups: {ex.Message}");
+                return;
+            }
+
+            foreach (PlcSystemBlockGroup group in list)
+            {
+                string path = parentPath + "/" + SafeName(group);
+                List<PlcBlock> blocks;
+                try { blocks = group.Blocks.ToList(); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  (avís) {deviceName} {path}: no es poden llistar els blocs: {ex.Message}");
+                    blocks = new List<PlcBlock>();
+                }
+
+                foreach (PlcBlock block in blocks)
                 {
                     try
                     {
@@ -587,7 +628,12 @@ namespace TiaOpennessApp.Services
                         add(new BlockInventoryItem { DeviceName = deviceName, GroupPath = path, Name = blockName, Error = ex.Message });
                     }
                 }
-                WalkSystemGroups(group.Groups, path, deviceName, add);
+
+                try { WalkSystemGroups(group.Groups, path, deviceName, add); }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  (avís) {deviceName} {path}: {ex.Message}");
+                }
             }
         }
 
