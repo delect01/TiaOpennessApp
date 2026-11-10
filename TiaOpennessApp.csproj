@@ -10,6 +10,13 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <!-- TIA-independent code lives in Core\ (TiaOpenness.Core); don't compile it twice. -->
+  <ItemGroup>
+    <Compile Remove="Core\**" />
+    <None Remove="Core\**" />
+    <ProjectReference Include="Core\TiaOpenness.Core.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="Siemens.Engineering.Base">
       <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll</HintPath>

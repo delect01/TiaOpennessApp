@@ -164,7 +164,7 @@ namespace TiaOpennessApp.Services
             return value.IndexOf('x') >= 0 || value.IndexOf('X') >= 0;
         }
 
-        internal static bool IsGsdIdentifier(string? typeIdentifier)
+        public static bool IsGsdIdentifier(string? typeIdentifier)
         {
             return !string.IsNullOrWhiteSpace(typeIdentifier)
                 && typeIdentifier!.StartsWith("GSD:", StringComparison.OrdinalIgnoreCase);

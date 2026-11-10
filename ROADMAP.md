@@ -215,6 +215,90 @@ Offline tool: `--diff-topology <expected.json> <actual.json>`.
 
 ---
 
+## E - Project editor with approved catalog (agreed 2026-11-10)
+
+Goal: engineers create new TIA projects only from **administrator-approved
+elements**, editing project data in forms instead of CSV files. The SQLite
+project database is the single source of truth; CSV stays as an
+exchange/backup format.
+
+### Decisions
+
+| Topic | Decision |
+|---|---|
+| Editor type | Windows desktop (WPF), single user per project |
+| Master data | `project.db` (SQLite) in a project folder; CSV only for exchange |
+| Scope v1 | Devices, modules, subnets, interfaces, I/Q addresses, I/O tags, program blocks |
+| Roles | **Administrator**: separate app (`TiaCatalogAdmin`), installed only on admin PCs. **User**: editor only |
+| Approved catalog | Network share, read-only for users, **signed** (private key only on admin PCs) |
+| Locked for users | Hardware definition (TypeKey, order no., firmware, slot, GSD), I/O address layout (I/Q start/length, IO system), network structure (subnets, interface→subnet), program blocks (selection, numbers, XML) |
+| Free for users | Device names, IP, PROFINET name, comments; I/O tags (name/type/comment free, address must lie inside an approved module I/Q range) |
+| Adding hardware | Users add **kits** only (approved device + fixed modules/addresses/interfaces/blocks) |
+| Enforcement | `TiaOpennessApp` verifies the catalog signature and refuses to generate if anything is unapproved or a locked field differs from its kit |
+
+### Components
+
+| Component | Target | Content |
+|---|---|---|
+| `TiaOpenness.Core` | `netstandard2.0` | Models, DB schema/repositories, `ValidationService`, catalog, signature verification. No Openness, no UI |
+| `TiaCatalogAdmin` | WPF .NET 8 | Catalog/kit/template/block-library editor; signs and publishes catalog versions |
+| `TiaTopologyEditor` | WPF .NET 8 | Project editor for users (kits + free fields + I/O tags) |
+| `TiaOpennessApp` | `net48` (existing) | TIA export; generation from `project.db` with approval check |
+
+Approved catalog layout on the share:
+
+```
+\\server\TIA-Approved\
+  catalog-vNN\  catalog.db + catalog.sig   types, kits, locked-field rules
+                templates\*.ap21           approved template projects
+                blocks\...                 approved block library (SimaticML)
+  current.txt   -> catalog-vNN
+```
+
+Each project records the catalog version it was built with; a project is
+validated against that version while it exists on the share, otherwise it must
+be upgraded ("Upgrade to current catalog" with a change preview).
+
+### Phases
+
+#### E0 - Foundations (console-testable, no UI)
+- [x] Extract `TiaOpenness.Core` (models, validation, catalog, DB layer); `TiaOpennessApp` references it.
+      Done 2026-11-10: `Core\TiaOpenness.Core.csproj` (`netstandard2.0`) holds `Models\` and the 15
+      TIA-independent services; namespaces kept (`TiaOpennessApp.*`) to avoid churn. The app stays at
+      the repo root and excludes `Core\**` from its own compile items.
+- [ ] Project DB schema v2 + `schema_version` + automatic migration from v1: `blocks` table, kit instances, catalog version, `module_addresses` FK to `modules`, unique IP / PN name per subnet, unique tag name per tag table.
+- [ ] Approved catalog DB format (types, kits, locked-field rules) + signing / signature verification.
+- [ ] `DbGenerationReader : IGenerationReader` + CLI `--generate-project-db` and menu option, with the approval check.
+- [ ] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).
+- **Gate:** generate a TIA project from a `.db` from the console; a tampered `.db` or catalog is refused with clear reasons.
+
+#### E1 - `TiaCatalogAdmin`
+- [ ] Seed types from an existing project export.
+- [ ] Kit editor (device type, fixed modules/slots, address ranges, interfaces + subnet role, blocks).
+- [ ] Manage approved templates and block library.
+- [ ] Publish: sign, copy to share, update `current.txt`.
+- **Gate:** first signed catalog published; a kit for the Fanuc robot (`DIO 1024` ×3) defined.
+
+#### E2 - Editor: hardware
+- [ ] New project (choose approved template) / open / import exports / export CSV.
+- [ ] Tree Subnets › Devices › Modules; add kit → name, IP, PROFINET name; locked fields read-only.
+- **Gate:** a project's hardware built only from kits.
+
+#### E3 - Editor: I/O tags
+- [ ] Grid with filters, paste from Excel, bulk address shift, range check against approved module ranges.
+- **Gate:** tag list complete and validated.
+
+#### E4 - Generation + packaging
+- [ ] Validate / Generate buttons (runs `TiaOpennessApp`, live log); catalog upgrade.
+- [ ] `publish.bat` + installers (users: editor + TiaOpennessApp; admins: + TiaCatalogAdmin).
+- **Gate:** end-to-end: new project from kits → generated TIA project compiles.
+
+### Open points
+- Exact kit content (proposal above) to be confirmed with the first real kit.
+- Change history: start with an automatic `project.db` backup before each generation.
+
+---
+
 ## Change log
 
 | Date | Phase | Change |
