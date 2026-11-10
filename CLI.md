@@ -47,6 +47,7 @@ dotnet run -- <command> [arguments...]
 | `--export-cax-project` | Exporta un projecte sencer a un fitxer CAx/AML (golden) |
 | `--import-db` | Importa els CSV (`imports/` + catàleg) a una base de dades SQLite |
 | `--db-to-csv` | Regenera els CSV (documents + catàleg) des de la base de dades SQLite |
+| `--db-info` | Mostra la versió i el contingut de la base de dades i l'actualitza a l'esquema actual |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -370,7 +371,7 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --generate-project | --diff-topology | --dump-type-id |
 --plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
 --export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
---export-cax-project | --import-db | --db-to-csv
+--export-cax-project | --import-db | --db-to-csv | --db-info
 ```
 
 ---
@@ -460,6 +461,30 @@ TiaOpennessApp --db-to-csv [dbPath] [outDocsDir] [catalogCsv]
 **Sortida**: nombre de files per fitxer i, si n'hi ha, errors. El mateix export
 també és accessible al menú interactiu amb l'opció **5. Export SQLite database to
 CSVs**.
+
+Amb l'esquema v2 també s'escriu `Blocks.csv` (la llista de blocs de programa), si
+la base de dades en té.
+
+---
+
+## 20b. `--db-info`
+
+Obre una base de dades de projecte, la porta a l'esquema actual si és més antiga
+(p. ex. v1 → v2) i mostra la versió, les dades del projecte (`project_info`) i el
+nombre de files de cada taula.
+
+```
+TiaOpennessApp --db-info [dbPath]
+```
+
+| Argument | Descripció |
+|----------|------------|
+| `[dbPath]` | Fitxer SQLite. Per defecte: el mateix que `--import-db` |
+
+**Esquema v2**: afegeix `project_info`, `blocks` (importat de `Blocks.csv` si
+existeix) i regles d'unicitat: una IP i un nom PROFINET per subxarxa, i un nom
+d'I/O tag per PLC. Una importació que les incompleix es desfà sencera i indica el
+fitxer i la fila.
 
 ---
 

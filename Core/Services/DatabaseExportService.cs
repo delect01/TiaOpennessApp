@@ -133,6 +133,27 @@ namespace TiaOpennessApp.Services
                             map: r => new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), Text(r, 6), Text(r, 7), Text(r, 8) }),
                     });
 
+                    // Schema v2+: program blocks manifest (CsvHelper writes bool? as True/False).
+                    if (ProjectDatabase.TableExists(connection, "blocks"))
+                    {
+                        result.FileCounts.Add(new DbFileCount
+                        {
+                            FileName = Path.Combine(resolvedOutputDir, "Blocks.csv"),
+                            Count = WriteFile(connection,
+                                Path.Combine(resolvedOutputDir, "Blocks.csv"),
+                                withBom: true,
+                                header: GenerationColumns.BlocksColumns,
+                                sql: "SELECT device, group_path, kind, name, namespace, number, auto_number, block_type, " +
+                                     "programming_language, memory_layout, title, comment, source_file FROM blocks ORDER BY id;",
+                                map: r => new[]
+                                {
+                                    Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Number(r, 5),
+                                    r.IsDBNull(6) ? null : (r.GetInt64(6) != 0 ? "True" : "False"),
+                                    Text(r, 7), Text(r, 8), Text(r, 9), Text(r, 10), Text(r, 11), Text(r, 12),
+                                }),
+                        });
+                    }
+
                     result.FileCounts.Add(new DbFileCount
                     {
                         FileName = resolvedCatalogPath,

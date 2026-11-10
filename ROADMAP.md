@@ -266,7 +266,17 @@ be upgraded ("Upgrade to current catalog" with a change preview).
       Done 2026-11-10: `Core\TiaOpenness.Core.csproj` (`netstandard2.0`) holds `Models\` and the 15
       TIA-independent services; namespaces kept (`TiaOpennessApp.*`) to avoid churn. The app stays at
       the repo root and excludes `Core\**` from its own compile items.
-- [ ] Project DB schema v2 + `schema_version` + automatic migration from v1: `blocks` table, kit instances, catalog version, `module_addresses` FK to `modules`, unique IP / PN name per subnet, unique tag name per tag table.
+- [x] Project DB schema v2 + versioning + automatic migration from v1.
+      Done 2026-11-10 (`Core\Services\ProjectDatabase.cs`): version in `PRAGMA user_version`, one
+      transaction per upgrade step; v2 adds `project_info` (created, source, catalog version),
+      `blocks` (Blocks.csv manifest, round-trips through options 4/5), unique IP and PROFINET name
+      per subnet, unique I/O tag name per PLC (TIA rule: unique across all tag tables).
+      CLI `--db-info <db>` shows version/counts and upgrades old databases.
+      Changed from plan: **no FK `module_addresses` → `modules`** — GSD submodules (e.g.
+      `MC120/UM1_PD`) are address rows without a module row; checked by the validator instead.
+      **Kit instances** are deferred to the v3 migration in E1, once the kit format exists.
+      Verified: CSV → DB → CSV identical for all files; duplicate tag rejected with file/row; a v1
+      database built by the previous binary upgrades to v2 with all rows intact.
 - [ ] Approved catalog DB format (types, kits, locked-field rules) + signing / signature verification.
 - [ ] `DbGenerationReader : IGenerationReader` + CLI `--generate-project-db` and menu option, with the approval check.
 - [ ] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).

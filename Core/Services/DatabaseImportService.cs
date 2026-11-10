@@ -15,17 +15,6 @@ namespace TiaOpennessApp.Services
     {
         private const string CatalogFileName = "Catalog.csv";
 
-        private static readonly string[] TableNames =
-        {
-            "catalog",
-            "devices",
-            "subnets",
-            "modules",
-            "interfaces",
-            "module_addresses",
-            "io_tags",
-        };
-
         public string DefaultDbPath
         {
             get { return AppPaths.DatabasePath; }
@@ -85,14 +74,15 @@ namespace TiaOpennessApp.Services
                 if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
                     Directory.CreateDirectory(dbDirectory!);
 
-                using (var connection = new SqliteConnection($"Data Source={resolvedDbPath}"))
+                using (var connection = ProjectDatabase.Open(resolvedDbPath, create: true))
                 {
-                    connection.Open();
-                    ExecuteSchema(connection);
-
                     using (var transaction = connection.BeginTransaction())
                     {
                         int errorsBefore = result.Errors.Count;
+
+                        ProjectDatabase.SetInfo(connection, transaction, ProjectDatabase.InfoKeys.CreatedUtc,
+                            DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                        ProjectDatabase.SetInfo(connection, transaction, ProjectDatabase.InfoKeys.Source, resolvedImportsDir);
 
                         RunImport(connection, transaction, "catalog",
                             () => ImportCatalog(connection, transaction, catalogPath!, result.Warnings), result.Errors);
@@ -118,6 +108,12 @@ namespace TiaOpennessApp.Services
                         RunImport(connection, transaction, "io_tags",
                             () => ImportIoTags(connection, transaction, Path.Combine(resolvedImportsDir, "IoTags.csv"), deviceNames, result.Warnings), result.Errors);
 
+                        // Blocks.csv is optional (only present when program blocks were exported).
+                        string blocksPath = Path.Combine(resolvedImportsDir, "Blocks.csv");
+                        if (File.Exists(blocksPath))
+                            RunImport(connection, transaction, "blocks",
+                                () => ImportBlocks(connection, transaction, blocksPath, deviceNames, result.Warnings), result.Errors);
+
                         if (result.Errors.Count > errorsBefore)
                         {
                             transaction.Rollback();
@@ -129,7 +125,7 @@ namespace TiaOpennessApp.Services
                         }
                     }
 
-                    foreach (string table in TableNames)
+                    foreach (string table in ProjectDatabase.TableNames)
                         result.TableCounts.Add(new DbTableCount { TableName = table, Count = CountRows(connection, table) });
                 }
             }
@@ -196,279 +192,6 @@ namespace TiaOpennessApp.Services
             }
         }
 
-        private static void ExecuteSchema(SqliteConnection connection)
-        {
-            const string schema = @"
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE catalog (
-    type_key    TEXT PRIMARY KEY,
-    mlfb        TEXT,
-    tia_version TEXT,
-    description TEXT,
-    role        TEXT,
-    identifier  TEXT
-);
-
-CREATE TABLE devices (
-    device_name TEXT PRIMARY KEY,
-    group_name  TEXT,
-    type_key    TEXT NOT NULL
-                CHECK (length(trim(type_key)) > 0)
-                REFERENCES catalog(type_key) ON UPDATE CASCADE ON DELETE RESTRICT,
-    firmware    TEXT,
-    comment     TEXT
-);
-
-CREATE TABLE subnets (
-    name        TEXT PRIMARY KEY,
-    subnet_type TEXT
-);
-
-CREATE TABLE modules (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    device      TEXT NOT NULL
-                REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    module_name TEXT NOT NULL,
-    slot        INTEGER,
-    type_key    TEXT NOT NULL
-                CHECK (length(trim(type_key)) > 0)
-                REFERENCES catalog(type_key) ON UPDATE CASCADE ON DELETE RESTRICT,
-    comment     TEXT,
-    UNIQUE(device, module_name)
-);
-
-CREATE TABLE interfaces (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    device         TEXT NOT NULL
-                   REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    interface_item TEXT NOT NULL,
-    subnet         TEXT
-                   REFERENCES subnets(name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    ip_address     TEXT,
-    subnet_mask    TEXT,
-    pn_device_name TEXT,
-    master_io_system TEXT,
-    master_io_system_number INTEGER,
-    UNIQUE(device, interface_item)
-);
-
-CREATE TABLE module_addresses (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    device          TEXT NOT NULL
-                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    module_name     TEXT,
-    sub_module_name TEXT,
-    type_identifier TEXT,
-    io_type         TEXT,
-    start_address   INTEGER,
-    length          INTEGER
-);
-
-CREATE TABLE io_tags (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    device          TEXT NOT NULL
-                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    io_device       TEXT
-                    REFERENCES devices(device_name) ON UPDATE CASCADE ON DELETE RESTRICT,
-    module_name     TEXT,
-    sub_module_name TEXT,
-    tag_table       TEXT,
-    name            TEXT,
-    type            TEXT,
-    address         TEXT,
-    comment         TEXT
-);
-
-CREATE TRIGGER trg_devices_type_key_insert
-BEFORE INSERT ON devices
-BEGIN
-    SELECT RAISE(ABORT, 'devices.type_key is required and must exist in catalog')
-    WHERE NEW.type_key IS NULL
-       OR length(trim(NEW.type_key)) = 0
-       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
-END;
-
-CREATE TRIGGER trg_devices_type_key_update
-BEFORE UPDATE OF type_key ON devices
-BEGIN
-    SELECT RAISE(ABORT, 'devices.type_key is required and must exist in catalog')
-    WHERE NEW.type_key IS NULL
-       OR length(trim(NEW.type_key)) = 0
-       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
-END;
-
-CREATE TRIGGER trg_devices_delete
-BEFORE DELETE ON devices
-BEGIN
-    SELECT RAISE(ABORT, 'device is referenced by modules, interfaces, module_addresses or io_tags')
-    WHERE EXISTS (SELECT 1 FROM modules WHERE device = OLD.device_name)
-       OR EXISTS (SELECT 1 FROM interfaces WHERE device = OLD.device_name)
-       OR EXISTS (SELECT 1 FROM module_addresses WHERE device = OLD.device_name)
-       OR EXISTS (SELECT 1 FROM io_tags WHERE device = OLD.device_name OR io_device = OLD.device_name);
-END;
-
-CREATE TRIGGER trg_modules_refs_insert
-BEFORE INSERT ON modules
-BEGIN
-    SELECT RAISE(ABORT, 'modules.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'modules.type_key is required and must exist in catalog')
-    WHERE NEW.type_key IS NULL
-       OR length(trim(NEW.type_key)) = 0
-       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
-END;
-
-CREATE TRIGGER trg_modules_refs_update
-BEFORE UPDATE OF device, type_key ON modules
-BEGIN
-    SELECT RAISE(ABORT, 'modules.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'modules.type_key is required and must exist in catalog')
-    WHERE NEW.type_key IS NULL
-       OR length(trim(NEW.type_key)) = 0
-       OR NOT EXISTS (SELECT 1 FROM catalog WHERE type_key = NEW.type_key);
-END;
-
-CREATE TRIGGER trg_interfaces_refs_insert
-BEFORE INSERT ON interfaces
-BEGIN
-    SELECT RAISE(ABORT, 'interfaces.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'interfaces.subnet must exist in subnets')
-    WHERE NEW.subnet IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM subnets WHERE name = NEW.subnet);
-END;
-
-CREATE TRIGGER trg_interfaces_refs_update
-BEFORE UPDATE OF device, subnet ON interfaces
-BEGIN
-    SELECT RAISE(ABORT, 'interfaces.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'interfaces.subnet must exist in subnets')
-    WHERE NEW.subnet IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM subnets WHERE name = NEW.subnet);
-END;
-
-CREATE TRIGGER trg_module_addresses_refs_insert
-BEFORE INSERT ON module_addresses
-BEGIN
-    SELECT RAISE(ABORT, 'module_addresses.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-END;
-
-CREATE TRIGGER trg_module_addresses_refs_update
-BEFORE UPDATE OF device ON module_addresses
-BEGIN
-    SELECT RAISE(ABORT, 'module_addresses.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-END;
-
-CREATE TRIGGER trg_io_tags_refs_insert
-BEFORE INSERT ON io_tags
-BEGIN
-    SELECT RAISE(ABORT, 'io_tags.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'io_tags.io_device must exist in devices')
-    WHERE NEW.io_device IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.io_device);
-END;
-
-CREATE TRIGGER trg_io_tags_refs_update
-BEFORE UPDATE OF device, io_device ON io_tags
-BEGIN
-    SELECT RAISE(ABORT, 'io_tags.device must exist in devices')
-    WHERE NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.device);
-
-    SELECT RAISE(ABORT, 'io_tags.io_device must exist in devices')
-    WHERE NEW.io_device IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM devices WHERE device_name = NEW.io_device);
-END;
-
-CREATE TRIGGER trg_catalog_delete
-BEFORE DELETE ON catalog
-BEGIN
-    SELECT RAISE(ABORT, 'catalog entry is referenced by devices or modules')
-    WHERE EXISTS (SELECT 1 FROM devices WHERE type_key = OLD.type_key)
-       OR EXISTS (SELECT 1 FROM modules WHERE type_key = OLD.type_key);
-END;
-
-CREATE TRIGGER trg_catalog_type_key_update
-AFTER UPDATE OF type_key ON catalog
-WHEN OLD.type_key <> NEW.type_key
-BEGIN
-    UPDATE devices SET type_key = NEW.type_key WHERE type_key = OLD.type_key;
-    UPDATE modules SET type_key = NEW.type_key WHERE type_key = OLD.type_key;
-END;
-
-CREATE TRIGGER trg_subnets_delete
-BEFORE DELETE ON subnets
-BEGIN
-    SELECT RAISE(ABORT, 'subnet is referenced by interfaces')
-    WHERE EXISTS (SELECT 1 FROM interfaces WHERE subnet = OLD.name);
-END;
-
-CREATE INDEX idx_modules_device ON modules(device);
-CREATE INDEX idx_modules_type_key ON modules(type_key);
-CREATE INDEX idx_interfaces_device ON interfaces(device);
-CREATE INDEX idx_interfaces_subnet ON interfaces(subnet);
-CREATE INDEX idx_module_addresses_device ON module_addresses(device);
-CREATE INDEX idx_module_addresses_module ON module_addresses(module_name);
-CREATE INDEX idx_io_tags_device ON io_tags(device);
-CREATE INDEX idx_io_tags_io_device ON io_tags(io_device);
-CREATE INDEX idx_io_tags_name ON io_tags(name);
-
-CREATE VIEW vw_device_topology AS
-SELECT d.device_name,
-       d.group_name,
-       d.type_key,
-       c.description AS type_description,
-       d.firmware,
-       i.interface_item,
-       i.subnet,
-       i.ip_address,
-       i.subnet_mask,
-       i.pn_device_name,
-       i.master_io_system,
-       i.master_io_system_number
-FROM devices d
-LEFT JOIN catalog c ON c.type_key = d.type_key
-LEFT JOIN interfaces i ON i.device = d.device_name;
-
-CREATE VIEW vw_io_mapping AS
-SELECT t.device,
-       t.io_device,
-       t.module_name,
-       t.sub_module_name,
-       t.tag_table,
-       t.name       AS tag_name,
-       t.type       AS tag_type,
-       t.address,
-       t.comment,
-       a.type_identifier,
-       a.io_type,
-       a.start_address,
-       a.length
-FROM io_tags t
-LEFT JOIN module_addresses a
-       ON a.device = t.io_device
-      AND a.module_name = t.module_name
-      AND a.sub_module_name = t.sub_module_name
-      AND a.io_type = UPPER(SUBSTR(t.address, 2, 1));
-";
-
-            using (var command = connection.CreateCommand())
-            {
-                command.CommandText = schema;
-                command.ExecuteNonQuery();
-            }
-        }
-
         private static void RunImport(SqliteConnection connection, SqliteTransaction transaction, string table, Action import, List<string> errors)
         {
             try
@@ -527,7 +250,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@description", row.Get("Description"));
                     SetParameter(command, "@role", row.Get("Role"));
                     SetParameter(command, "@identifier", row.Get("Identifier"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -564,7 +287,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@firmware", row.Get("Firmware"));
                     SetParameter(command, "@comment", row.Get("Comment"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -584,7 +307,7 @@ LEFT JOIN module_addresses a
 
                     SetParameter(command, "@name", name);
                     SetParameter(command, "@subnet_type", row.Get("SubnetType"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -629,7 +352,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@slot", row.GetInt("Slot"));
                     SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@comment", row.Get("Comment"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -671,7 +394,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@pn_device_name", row.Get("PNDeviceName"));
                     SetParameter(command, "@master_io_system", row.Get("MasterIOSystem"));
                     SetParameter(command, "@master_io_system_number", row.Get("MasterIOSystemNumber"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -703,7 +426,7 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@io_type", row.Get("IoType"));
                     SetParameter(command, "@start_address", row.GetInt("StartAddress"));
                     SetParameter(command, "@length", row.GetInt("Length"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
                 }
             }
         }
@@ -744,7 +467,50 @@ LEFT JOIN module_addresses a
                     SetParameter(command, "@type", row.Get("Type"));
                     SetParameter(command, "@address", row.Get("Address"));
                     SetParameter(command, "@comment", row.Get("Comment"));
-                    command.ExecuteNonQuery();
+                    Insert(command, path, row);
+                }
+            }
+        }
+
+        private static void ImportBlocks(SqliteConnection connection, SqliteTransaction transaction, string path, ISet<string> deviceNames, List<string> warnings)
+        {
+            string file = Path.GetFileName(path);
+
+            using (var command = CreateCommand(connection, transaction,
+                "INSERT INTO blocks (device, group_path, kind, name, namespace, number, auto_number, block_type, programming_language, memory_layout, title, comment, source_file) " +
+                "VALUES (@device, @group_path, @kind, @name, @namespace, @number, @auto_number, @block_type, @programming_language, @memory_layout, @title, @comment, @source_file);"))
+            {
+                AddParameter(command, "@device", "@group_path", "@kind", "@name", "@namespace", "@number", "@auto_number",
+                    "@block_type", "@programming_language", "@memory_layout", "@title", "@comment", "@source_file");
+
+                foreach (Row row in ReadRows(path))
+                {
+                    if (!TryGetRequired(row, "Device", file, warnings, out string device)
+                        || !TryGetRequired(row, "Name", file, warnings, out string name))
+                        continue;
+
+                    if (!deviceNames.Contains(device))
+                    {
+                        warnings.Add($"{file} row {row.Number}: device '{device}' not found in Devices.csv; row skipped.");
+                        continue;
+                    }
+
+                    string? autoNumber = row.Get("AutoNumber");
+                    SetParameter(command, "@device", device);
+                    SetParameter(command, "@group_path", row.Get("GroupPath") ?? string.Empty);
+                    SetParameter(command, "@kind", row.Get("Kind") ?? "Block");
+                    SetParameter(command, "@name", name);
+                    SetParameter(command, "@namespace", row.Get("Namespace"));
+                    SetParameter(command, "@number", row.GetInt("Number"));
+                    SetParameter(command, "@auto_number", autoNumber == null ? null
+                        : (object)(bool.TryParse(autoNumber, out bool b) ? (b ? 1 : 0) : (autoNumber == "1" ? 1 : 0)));
+                    SetParameter(command, "@block_type", row.Get("BlockType"));
+                    SetParameter(command, "@programming_language", row.Get("ProgrammingLanguage"));
+                    SetParameter(command, "@memory_layout", row.Get("MemoryLayout"));
+                    SetParameter(command, "@title", row.Get("Title"));
+                    SetParameter(command, "@comment", row.Get("Comment"));
+                    SetParameter(command, "@source_file", row.Get("SourceFile"));
+                    Insert(command, path, row);
                 }
             }
         }
@@ -761,6 +527,26 @@ LEFT JOIN module_addresses a
 
             value = raw!;
             return true;
+        }
+
+        /// <summary>
+        /// Inserts one CSV row; a constraint violation (duplicate IP, tag name, ...) is reported with
+        /// the file, row number and the row values so the user can find it.
+        /// </summary>
+        private static void Insert(SqliteCommand command, string path, Row row)
+        {
+            try
+            {
+                command.ExecuteNonQuery();
+            }
+            catch (SqliteException ex) when (ex.SqliteErrorCode == 19) // SQLITE_CONSTRAINT
+            {
+                string values = string.Join(", ", command.Parameters.Cast<SqliteParameter>()
+                    .Where(p => p.Value != null && p.Value != DBNull.Value)
+                    .Select(p => $"{p.ParameterName.TrimStart('@')}={p.Value}"));
+                throw new InvalidOperationException(
+                    $"{Path.GetFileName(path)} row {row.Number}: {ex.Message.Replace("SQLite Error 19: ", string.Empty)} ({values})", ex);
+            }
         }
 
         private static long CountRows(SqliteConnection connection, string table)

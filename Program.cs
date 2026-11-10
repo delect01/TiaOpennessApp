@@ -807,13 +807,44 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--db-info")
+            {
+                // Opens a project database, upgrading its schema in place if it is older.
+                string dbPath = args.Length >= 2 ? args[1] : new DatabaseImportService().DefaultDbPath;
+                int before;
+                using (var readOnly = ProjectDatabase.OpenReadOnly(dbPath))
+                    before = ProjectDatabase.TableExists(readOnly, "devices") && ProjectDatabase.GetSchemaVersion(readOnly) == 0
+                        ? 1
+                        : ProjectDatabase.GetSchemaVersion(readOnly);
+
+                using var db = ProjectDatabase.Open(dbPath);
+                int after = ProjectDatabase.GetSchemaVersion(db);
+                Console.WriteLine($"Database file:  {Path.GetFullPath(dbPath)}");
+                Console.WriteLine(before == after
+                    ? $"Schema version: v{after}"
+                    : $"Schema version: v{after} (upgraded from v{before})");
+                foreach (string key in new[] { ProjectDatabase.InfoKeys.CreatedUtc, ProjectDatabase.InfoKeys.Source, ProjectDatabase.InfoKeys.CatalogVersion })
+                {
+                    string? value = ProjectDatabase.GetInfo(db, key);
+                    if (value != null)
+                        Console.WriteLine($"  {key,-20} {value}");
+                }
+                foreach (string table in ProjectDatabase.TableNames)
+                {
+                    using var countCommand = db.CreateCommand();
+                    countCommand.CommandText = $"SELECT COUNT(*) FROM {table};";
+                    Console.WriteLine($"  {table,-20} {countCommand.ExecuteScalar(),8}");
+                }
+                return;
+            }
+
             Console.WriteLine($"Unknown command: {args[0]}");
             Console.WriteLine("Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx | " +
                               "--xlsx-to-csv | --verify-readers | --validate-docs | " +
                               "--generate-project | --diff-topology | --dump-type-id | " +
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
-                              "--export-cax-project | --import-db | --db-to-csv");
+                              "--export-cax-project | --import-db | --db-to-csv | --db-info");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)
