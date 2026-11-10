@@ -228,7 +228,7 @@ namespace TiaOpennessApp.Services
             if (parent != null)
                 return Path.Combine(parent, "catalog", CatalogFileName);
 
-            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "catalog", CatalogFileName);
+            return CatalogLocator.DefaultPath;
         }
 
         private static string? SafeParent(string path)

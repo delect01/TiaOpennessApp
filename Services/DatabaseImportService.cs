@@ -174,8 +174,7 @@ namespace TiaOpennessApp.Services
 
             candidates.Add(Path.Combine(importsDir, CatalogFileName));
 
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            candidates.Add(Path.Combine(baseDir, "catalog", CatalogFileName));
+            candidates.Add(CatalogLocator.DefaultPath);
 
             foreach (string candidate in candidates)
             {

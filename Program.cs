@@ -2973,11 +2973,7 @@ namespace TiaOpennessApp
 
         private static string ResolveCatalogPath()
         {
-            string? configured = AppConfig["Import:CatalogPath"];
-            if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
-                return configured!;
-
-            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "catalog", "Catalog.csv");
+            return CatalogLocator.Resolve(AppConfig["Import:CatalogPath"]);
         }
 
         private static void PrintDeviceReports(List<DeviceGenerationItemReport> reports)
