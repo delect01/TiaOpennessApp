@@ -807,6 +807,83 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--catalog-keygen")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --catalog-keygen <outDir>");
+                    return;
+                }
+
+                string outDir = Path.GetFullPath(args[1]);
+                string privatePath = Path.Combine(outDir, "catalog-private-key.json");
+                string publicPath = Path.Combine(outDir, "catalog-public-key.json");
+                if (File.Exists(privatePath) || File.Exists(publicPath))
+                {
+                    Console.WriteLine($"ERROR: key files already exist in {outDir}; not overwritten.");
+                    return;
+                }
+
+                Directory.CreateDirectory(outDir);
+                CatalogKey key = CatalogKey.Generate();
+                File.WriteAllText(privatePath, key.ToJson());
+                File.WriteAllText(publicPath, key.PublicOnly().ToJson());
+                Console.WriteLine($"Key id:      {key.KeyId}");
+                Console.WriteLine($"Private key: {privatePath}");
+                Console.WriteLine("             Keep it on administrator PCs only; never commit or share it.");
+                Console.WriteLine($"Public key:  {publicPath}");
+                Console.WriteLine("             Copy it to Core\\Security\\catalog-public-key.json and rebuild the apps.");
+                return;
+            }
+
+            if (command == "--catalog-publish")
+            {
+                if (args.Length < 5)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --catalog-publish <catalogCsv> <shareRoot> <version> <privateKey> [extraFilesDir]");
+                    return;
+                }
+
+                List<CatalogEntry> types = CatalogService.Load(args[1]);
+                CatalogKey privateKey = CatalogKey.Load(args[4]);
+                string packageDir = ApprovedCatalog.Publish(types, args[3], args[2], privateKey,
+                    publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+
+                CatalogVerification check = ApprovedCatalog.Verify(packageDir, privateKey.PublicOnly());
+                Console.WriteLine($"Published:   {packageDir}");
+                Console.WriteLine($"Types:       {types.Count}");
+                Console.WriteLine($"Files:       {check.Manifest?.Files.Count ?? 0}");
+                Console.WriteLine($"Key id:      {privateKey.KeyId}");
+                Console.WriteLine(check.IsValid ? "Verification: OK" : "Verification: FAILED - " + string.Join("; ", check.Errors));
+                return;
+            }
+
+            if (command == "--catalog-verify")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --catalog-verify <shareRoot|packageDir> [publicKey]");
+                    return;
+                }
+
+                CatalogKey? trusted = args.Length >= 3 ? CatalogKey.Load(args[2]).PublicOnly() : null;
+                string packageDir = ApprovedCatalog.ResolvePackageDir(args[1]);
+                CatalogVerification check = ApprovedCatalog.Verify(packageDir, trusted);
+                Console.WriteLine($"Package:     {check.PackageDir}");
+                if (check.Manifest != null)
+                    Console.WriteLine($"Version:     {check.Manifest.CatalogVersion}  (published {check.Manifest.PublishedUtc} by {check.Manifest.Publisher}, key {check.Manifest.KeyId})");
+                foreach (string error in check.Errors)
+                    Console.WriteLine($"  ERROR: {error}");
+                if (check.IsValid)
+                {
+                    ApprovedCatalog catalog = ApprovedCatalog.Load(packageDir, trusted);
+                    Console.WriteLine($"Types:       {catalog.Types.Count}");
+                }
+                Console.WriteLine(check.IsValid ? "Result: VALID" : "Result: NOT VALID");
+                Environment.ExitCode = check.IsValid ? 0 : 1;
+                return;
+            }
+
             if (command == "--db-info")
             {
                 // Opens a project database, upgrading its schema in place if it is older.
@@ -844,7 +921,8 @@ namespace TiaOpennessApp
                               "--generate-project | --diff-topology | --dump-type-id | " +
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
-                              "--export-cax-project | --import-db | --db-to-csv | --db-info");
+                              "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
+                              "--catalog-keygen | --catalog-publish | --catalog-verify");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)

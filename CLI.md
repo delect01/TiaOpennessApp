@@ -48,6 +48,9 @@ dotnet run -- <command> [arguments...]
 | `--import-db` | Importa els CSV (`imports/` + catàleg) a una base de dades SQLite |
 | `--db-to-csv` | Regenera els CSV (documents + catàleg) des de la base de dades SQLite |
 | `--db-info` | Mostra la versió i el contingut de la base de dades i l'actualitza a l'esquema actual |
+| `--catalog-keygen` | (Administrador) Crea el parell de claus per signar el catàleg aprovat |
+| `--catalog-publish` | (Administrador) Publica una versió signada del catàleg aprovat a la carpeta de xarxa |
+| `--catalog-verify` | Comprova la signatura i la integritat d'un catàleg aprovat |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -371,7 +374,8 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --generate-project | --diff-topology | --dump-type-id |
 --plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
 --export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
---export-cax-project | --import-db | --db-to-csv | --db-info
+--export-cax-project | --import-db | --db-to-csv | --db-info |
+--catalog-keygen | --catalog-publish | --catalog-verify
 ```
 
 ---
@@ -485,6 +489,27 @@ TiaOpennessApp --db-info [dbPath]
 existeix) i regles d'unicitat: una IP i un nom PROFINET per subxarxa, i un nom
 d'I/O tag per PLC. Una importació que les incompleix es desfà sencera i indica el
 fitxer i la fila.
+
+---
+
+## 20c. Catàleg aprovat: `--catalog-keygen`, `--catalog-publish`, `--catalog-verify`
+
+El catàleg aprovat és una carpeta `catalog-vNN\` a la carpeta de xarxa, signada per
+l'administrador. Conté `catalog.db` (tipus aprovats), els fitxers aprovats
+(plantilles, blocs), `manifest.json` (SHA-256 de cada fitxer) i `catalog.sig`
+(signatura RSA del manifest). `current.txt`, a l'arrel, indica la versió vigent.
+
+```
+TiaOpennessApp --catalog-keygen <outDir>
+TiaOpennessApp --catalog-publish <catalogCsv> <shareRoot> <version> <privateKey> [extraFilesDir]
+TiaOpennessApp --catalog-verify <shareRoot|packageDir> [publicKey]
+```
+
+| Ordre | Què fa |
+|-------|--------|
+| `--catalog-keygen` | Crea `catalog-private-key.json` i `catalog-public-key.json`. La privada es queda als PC d'administrador (mai al repositori; `.gitignore` la ignora). La pública es copia a `Core\Security\catalog-public-key.json` i es recompila. No sobreescriu claus existents. |
+| `--catalog-publish` | Crea `shareRoot\catalog-v<version>` amb els tipus del CSV i el contingut de `extraFilesDir`, el signa i actualitza `current.txt`. No sobreescriu una versió existent. |
+| `--catalog-verify` | Comprova la signatura amb la clau pública indicada o, si no se n'indica cap, amb la que porta l'aplicació. Detecta fitxers modificats, eliminats o afegits. Codi de sortida 0 = vàlid, 1 = no vàlid. |
 
 ---
 

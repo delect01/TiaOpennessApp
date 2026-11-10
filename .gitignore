@@ -377,3 +377,6 @@ dist/
 # Configuració local de VS Code
 .vscode/
 *.code-workspace
+
+# Clau privada del catàleg aprovat: mai al repositori
+*private-key*.json

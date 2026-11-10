@@ -10,6 +10,13 @@
     <RootNamespace>TiaOpennessApp</RootNamespace>
   </PropertyGroup>
 
+  <!-- Trusted public key for approved catalog packages. Created by the administrator with
+       the TiaOpennessApp catalog-keygen command; only the PUBLIC key file goes here. Without it,
+       approved catalogs cannot be verified (and generation from project.db is refused). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Security\catalog-public-key.json" Condition="Exists('Security\catalog-public-key.json')" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="CsvHelper" Version="33.1.0" />

@@ -277,7 +277,16 @@ be upgraded ("Upgrade to current catalog" with a change preview).
       **Kit instances** are deferred to the v3 migration in E1, once the kit format exists.
       Verified: CSV → DB → CSV identical for all files; duplicate tag rejected with file/row; a v1
       database built by the previous binary upgrades to v2 with all rows intact.
-- [ ] Approved catalog DB format (types, kits, locked-field rules) + signing / signature verification.
+- [x] Approved catalog package format + signing / signature verification (types only; kits and
+      locked-field rules are added in E1).
+      Done 2026-11-10 (`Core\Services\ApprovedCatalog.cs`): package `catalog-vNN\` = `catalog.db`
+      (types) + approved files + `manifest.json` (SHA-256 per file) + `catalog.sig` (RSA-3072,
+      SHA-256, PKCS#1 over the manifest bytes); share root `current.txt` names the current package.
+      Verification rejects: wrong/other key, edited manifest, modified/missing/unlisted files,
+      `current.txt` pointing outside the share. `catalog.db` is read from the verified bytes.
+      Trusted public key = embedded resource `Core\Security\catalog-public-key.json` (absent →
+      nothing verifies). Private keys are git-ignored (`*private-key*.json`).
+      CLI for the administrator until E1: `--catalog-keygen`, `--catalog-publish`, `--catalog-verify`.
 - [ ] `DbGenerationReader : IGenerationReader` + CLI `--generate-project-db` and menu option, with the approval check.
 - [ ] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).
 - **Gate:** generate a TIA project from a `.db` from the console; a tampered `.db` or catalog is refused with clear reasons.
