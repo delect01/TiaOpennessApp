@@ -1,0 +1,99 @@
+<!--
+  Instal·lador MSI de TiaOpennessApp (WiX v6).
+  Es compila des de publish.bat:
+    wix build installer\TiaOpennessApp.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+              -d SourceDir=<carpeta del paquet> -d Version=<x.y.z> -o <sortida.msi>
+
+  Carpeta per defecte: C:\Program Files (x86)\TiaOpennessApp (es pot canviar al diàleg
+  o amb: msiexec /i TiaOpennessApp.msi INSTALLFOLDER="D:\Eines\TiaO" /qn).
+  Les dades d'usuari (imports, exports, catalog) les crea l'app a Documents\TIAO.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="TIA Openness App"
+           Manufacturer="EQUIPCERAMIC S.A."
+           Version="$(var.Version)"
+           UpgradeCode="257fae9d-9e5d-4b13-97e2-81e9451dd390"
+           Scope="perMachine"
+           Language="1027"
+           Codepage="1252">
+
+    <SummaryInformation Description="TIA Portal Openness V21 - Engineering Tool" Codepage="1252" />
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="Ja hi ha instal·lada una versió més nova de [ProductName]." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- .NET Framework 4.8 (Release >= 528040) -->
+    <Property Id="NETFX48RELEASE">
+      <RegistrySearch Id="NetFx48Search" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+                      Name="Release" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR (NETFX48RELEASE AND NETFX48RELEASE &gt;= &quot;#528040&quot;)"
+            Message="Cal .NET Framework 4.8 o superior." />
+
+    <!-- Carpeta d'instal·lació (Program Files (x86)) -->
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="TiaOpennessApp" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="TIA Openness App" />
+    </StandardDirectory>
+
+    <!-- Tots els fitxers del paquet (exe, DLL, appsettings, catalog inicial, scripts) -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.SourceDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="StartMenuShortcuts" Directory="AppMenuFolder">
+      <Shortcut Id="AppShortcut"
+                Name="TIA Openness App"
+                Description="TIA Portal Openness V21 - Engineering Tool"
+                Target="[INSTALLFOLDER]TiaOpennessApp.exe" />
+      <Shortcut Id="FixAllowListShortcut"
+                Name="Reparar AllowList Openness"
+                Target="[INSTALLFOLDER]fix_allowlist.bat"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\EQUIPCERAMIC\TiaOpennessApp"
+                     Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="TIA Openness App" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcuts" />
+    </Feature>
+
+    <!-- AllowList d'Openness (HKLM): es registra l'exe instal·lat sense finestra de consola. -->
+    <SetProperty Id="RegisterAllowList"
+                 Value="&quot;[INSTALLFOLDER]TiaOpennessApp.exe&quot; --fix-allowlist"
+                 Before="RegisterAllowList" Sequence="execute" />
+    <CustomAction Id="RegisterAllowList"
+                  BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <SetProperty Id="UnregisterAllowList"
+                 Value="&quot;[INSTALLFOLDER]TiaOpennessApp.exe&quot; --remove-allowlist"
+                 Before="UnregisterAllowList" Sequence="execute" />
+    <CustomAction Id="UnregisterAllowList"
+                  BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="UnregisterAllowList" Before="RemoveFiles"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RegisterAllowList" After="InstallFiles"
+              Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- UI: Benvinguda -> Carpeta d'instal·lació -> Instal·lar (sense pantalla de llicència) -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg"
+               Order="99" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg"
+               Order="99" />
+    </UI>
+  </Package>
+</Wix>

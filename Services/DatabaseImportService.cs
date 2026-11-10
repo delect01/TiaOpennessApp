@@ -28,7 +28,7 @@ namespace TiaOpennessApp.Services
 
         public string DefaultDbPath
         {
-            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tia_topology.db"); }
+            get { return AppPaths.DatabasePath; }
         }
 
         public string DefaultImportsDir
@@ -149,19 +149,7 @@ namespace TiaOpennessApp.Services
 
         private static string ResolveImportsDirectory()
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            DirectoryInfo? current = new DirectoryInfo(baseDir);
-            for (int depth = 0; depth < 5 && current != null; depth++)
-            {
-                string candidate = Path.Combine(current.FullName, "imports");
-                if (File.Exists(Path.Combine(candidate, "Devices.csv")))
-                    return candidate;
-
-                current = current.Parent;
-            }
-
-            return Path.Combine(baseDir, "imports");
+            return AppPaths.ImportsDir;
         }
 
         private static string? ResolveCatalogPath(string importsDir)

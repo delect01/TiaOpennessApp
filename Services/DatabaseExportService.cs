@@ -17,7 +17,7 @@ namespace TiaOpennessApp.Services
 
         public string DefaultDbPath
         {
-            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tia_topology.db"); }
+            get { return AppPaths.DatabasePath; }
         }
 
         public string DefaultOutputDir
@@ -207,19 +207,7 @@ namespace TiaOpennessApp.Services
 
         private static string ResolveOutputDirectory()
         {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-            DirectoryInfo? current = new DirectoryInfo(baseDir);
-            for (int depth = 0; depth < 5 && current != null; depth++)
-            {
-                string candidate = Path.Combine(current.FullName, "exports");
-                if (Directory.Exists(candidate))
-                    return candidate;
-
-                current = current.Parent;
-            }
-
-            return Path.Combine(baseDir, "exports");
+            return AppPaths.ExportsDir;
         }
 
         private static string ResolveCatalogPath(string outputDir)

@@ -44,15 +44,25 @@ namespace TiaOpennessApp
 
         private static IConfigurationRoot BuildConfiguration()
         {
-            return new ConfigurationBuilder()
+            // Prioritat (de menys a més): valors per defecte d'AppPaths ->
+            // appsettings.json al costat de l'exe -> appsettings.json d'usuari (Documents\TIAO).
+            var builder = new ConfigurationBuilder()
                 .SetBasePath(AppDomain.CurrentDomain.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: false)
-                .Build();
+                .AddInMemoryCollection(AppPaths.ConfigDefaults())
+                .AddJsonFile("appsettings.json", optional: true);
+
+            string? userSettings = AppPaths.UserSettingsPath;
+            if (userSettings != null)
+                builder.AddJsonFile(userSettings, optional: true);
+
+            return builder.Build();
         }
 
         static void Main(string[] args)
         {
             try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
+
+            AppPaths.EnsureUserData();
 
             if (args.Length > 0)
             {
@@ -225,6 +235,12 @@ namespace TiaOpennessApp
             if (command == "--fix-allowlist")
             {
                 FixAllowlist();
+                return;
+            }
+
+            if (command == "--remove-allowlist")
+            {
+                RemoveAllowlist();
                 return;
             }
 
@@ -659,7 +675,7 @@ namespace TiaOpennessApp
                 string sourcePath = args[1];
                 string docsDir = args.Length >= 3
                     ? args[2]
-                    : (AppConfig["Export:DocsPath"] ?? Path.Combine("exports"));
+                    : (AppConfig["Export:DocsPath"] ?? AppPaths.ExportsDir);
                 string catalogPath = args.Length >= 4
                     ? args[3]
                     : ResolveCatalogPath();
@@ -1810,6 +1826,43 @@ namespace TiaOpennessApp
             Console.WriteLine($"  DateModified= {dateModified}");
             Console.WriteLine($"  FileHash    = {fileHash}");
             Environment.ExitCode = 0;
+        }
+
+        /// <summary>
+        /// Esborra l'entrada de l'AllowList només si apunta a aquest executable
+        /// (la crida l'instal·lador en desinstal·lar). Cal ser administrador.
+        /// </summary>
+        private static void RemoveAllowlist()
+        {
+            string exePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TiaOpennessApp.exe");
+            string name = Path.GetFileName(exePath);
+            string keyPath = $@"{AllowListRoot}\{name}";
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(keyPath, writable: true);
+                if (key == null)
+                    return;
+
+                foreach (string entryName in key.GetSubKeyNames())
+                {
+                    string? path;
+                    using (var entry = key.OpenSubKey(entryName))
+                        path = entry?.GetValue("Path") as string;
+
+                    if (string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        key.DeleteSubKeyTree(entryName, throwOnMissingSubKey: false);
+                        Console.WriteLine($"AllowList: esborrada HKLM\\{keyPath}\\{entryName}");
+                    }
+                }
+                Environment.ExitCode = 0;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error esborrant l'AllowList: {ex.Message}");
+                Environment.ExitCode = 2;
+            }
         }
 
         private static bool IsAdministrator()
@@ -2968,7 +3021,7 @@ namespace TiaOpennessApp
             string? configured = AppConfig["Import:DocsPath"];
             if (!string.IsNullOrWhiteSpace(configured) && Directory.Exists(configured))
                 return configured!;
-            return Path.Combine("imports");
+            return AppPaths.ImportsDir;
         }
 
         private static string ResolveCatalogPath()
@@ -3125,7 +3178,7 @@ namespace TiaOpennessApp
         private static void ExportDocsFromOpenProject(TiaConnection connection)
         {
             string defaultDocsDir = AppConfig["Export:DocsPath"]
-                ?? Path.Combine("exports");
+                ?? AppPaths.ExportsDir;
             Console.Write($"Docs directory [{defaultDocsDir}]: ");
             string? input = Console.ReadLine()?.Trim();
             string docsDir = string.IsNullOrEmpty(input) ? defaultDocsDir : input!;
@@ -3361,9 +3414,15 @@ namespace TiaOpennessApp
 
         private static void PersistAppSettings(params (string Key, string Value)[] updates)
         {
-            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+            // Instal·lada: Program Files és de només lectura -> es desa a Documents\TIAO\appsettings.json.
+            string configPath = AppPaths.WritableSettingsPath;
             if (!File.Exists(configPath))
-                return;
+            {
+                if (AppPaths.UserSettingsPath == null)
+                    return;
+                Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+                File.WriteAllText(configPath, "{}");
+            }
 
             JsonNode? root = JsonNode.Parse(File.ReadAllText(configPath));
             if (root is not JsonObject settings)
