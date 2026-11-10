@@ -67,22 +67,6 @@ namespace TiaOpennessApp.Services
             AttachedToExisting = false;
         }
 
-        public void AttachToExistingPortal()
-        {
-            foreach (TiaPortalProcess process in TiaPortal.GetProcesses())
-            {
-                if (process.Mode == TiaPortalMode.WithUserInterface)
-                {
-                    _portal = process.Attach();
-                    // false;
-                    AttachedToExisting = true;
-                    return;
-                }
-            }
-
-            throw new InvalidOperationException("No running TIA Portal instance with user interface found.");
-        }
-
         /// <summary>
         /// Path of the project, or null if there is none or TIA has already
         /// disposed it (closed from another flow or from the GUI).

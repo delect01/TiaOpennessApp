@@ -373,3 +373,7 @@ _restore/
 
 # Paquets generats per publish.bat
 dist/
+
+# Configuració local de VS Code
+.vscode/
+*.code-workspace

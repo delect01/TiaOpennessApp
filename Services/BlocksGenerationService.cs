@@ -574,8 +574,8 @@ namespace TiaOpennessApp.Services
             // <Namespace /> + OfSystemLibElement/OfSystemLibVersion, sense InstanceOfType.
             bool sysLib = !string.IsNullOrEmpty(version);
             var variants = sysLib
-                ? new[] { (Iface: "", Lang: "F_DB"), ("", "DB"), (emptyInterface, "F_DB"), (emptyInterface, "DB") }
-                : new[] { (Iface: "", Lang: "F_DB"), (emptyInterface, "F_DB") };
+                ? new (string Iface, string Lang)[] { ("", "F_DB"), ("", "DB"), (emptyInterface, "F_DB"), (emptyInterface, "DB") }
+                : new (string Iface, string Lang)[] { ("", "F_DB"), (emptyInterface, "F_DB") };
 
             var errors = new List<string>();
             foreach (var (iface, lang) in variants)

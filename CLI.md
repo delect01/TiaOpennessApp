@@ -34,9 +34,7 @@ dotnet run -- <command> [arguments...]
 | `--xlsx-to-csv` | Converteix un XLSX als CSV de documents |
 | `--verify-readers` | Verifica que els lectors CSV i XLSX produeixen el mateix document |
 | `--validate-docs` | Valida els documents contra el catàleg (sense tocar TIA) |
-| `--gen-devices-sandbox` | Genera dispositius/estànders en un projecte sandbox |
 | `--generate-project` | Pipeline complet de generació (sense auto-comparació opcional) |
-| `--roundtrip-test` | Prova integral: exporta la font, regenera i compara la topologia |
 | `--diff-topology` | Compara dues topologies exportades (JSON) |
 | `--dump-type-id` | Mostra els `TypeIdentifier` dels dispositius d'un projecte |
 | `--plug-diagnose` | Diagnòstic de connexió (plug) de mòduls a un rack |
@@ -46,13 +44,11 @@ dotnet run -- <command> [arguments...]
 | `--dump-blocks` | Mostra l'inventari de blocs de programa d'un projecte (diagnòstic) |
 | `--dump-subnets` | Mostra les xarxes (subnets) d'un projecte |
 | `--dump-interfaces` | Mostra les interfícies de xarxa d'un projecte |
-| `--gsd-cax-poc` | PoC: exporta un dispositiu GSD a AML i l'importa en un sandbox (via CAx) |
 | `--export-cax-project` | Exporta un projecte sencer a un fitxer CAx/AML (golden) |
 | `--import-db` | Importa els CSV (`imports/` + catàleg) a una base de dades SQLite |
 | `--db-to-csv` | Regenera els CSV (documents + catàleg) des de la base de dades SQLite |
 
-> **Golden AML**: es pot obtenir amb `--export-cax-project`, amb el roundtrip
-> (`workDir\golden.aml`) o automàticament des del projecte obert al menú
+> **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
 
 ---
@@ -175,30 +171,6 @@ resum `error(s)/warning(s)` amb estat `OK` o `NOT READY`.
 
 ---
 
-## 7. `--gen-devices-sandbox`
-
-Executa el pipeline de generació **en un projecte sandbox** (per defecte el de
-`TiaPortal:NewProjectPath`/`NewProjectName`), amb sortida de reports de
-generació per a dispositius, mòduls, subnets i interfícies. El projecte es
-desa.
-
-```
-TiaOpennessApp --gen-devices-sandbox <docsDir> [catalogCsv] [outJson]
-```
-
-| Argument | Descripció |
-|----------|------------|
-| `<docsDir>` | Directori amb els CSV |
-| `[catalogCsv]` | Catàleg. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
-| `[outJson]` | Ruta opcional per exportar els dispositius de xarxa generats |
-
-**Requisits**: `TiaPortal:NewProjectPath` i `TiaPortal:NewProjectName` han
-d'estar configurats a `appsettings.json`.
-
-**Nota**: connecta a TIA Portal en mode headless i crea/obre el projecte sandbox.
-
----
-
 ## 8. `--generate-project`
 
 Executa el **pipeline complet**:
@@ -237,50 +209,6 @@ automàticament:
    defecte a les següents execucions.
 3. Sense golden, els dispositius GSD es generarien amb `CreateWithItem` (error
    de llicència `gsdml`); el pipeline ho avisa i continua.
-
----
-
-## 9. `--roundtrip-test`
-
-Prova integral del pipeline: obre el projecte font, genera el catàleg i els
-CSV de documents (incloent-hi `IoTags.csv` i `ModuleAddresses.csv`), executa la
-generació completa en un projecte nou, re-exporta el resultat i compara la
-topologia, els tags i el mapa d'adreces amb la font (report `PASS` / `FAIL`).
-Durant el PAS 1-3 el round-trip exporta un **golden AML** (`workDir\golden.aml`)
-del projecte sencer; al PAS 4 el pipeline l'importa per crear els dispositius GSD
-sense necessitar la llicència `gsdml` (els serveis de generació els troben i els
-salten). Els dispositius GSD que no vinguin al golden es classifiquen com a
-*gaps coneguts* i no fan fallar el test.
-
-```
-TiaOpennessApp --roundtrip-test <srcProject> <workDir> <targetDir> <projectName> [catalogSeed]
-```
-
-| Argument | Descripció |
-|----------|------------|
-| `<srcProject>` | Projecte `.ap21` font (es genera el catàleg seed i els documents) |
-| `<workDir>` | Directori de treball temporal (per als documents i JSON de comparació) |
-| `<targetDir>` | Directori destí del projecte generat (els CSV es generen a partir de la font) |
-| `<projectName>` | Nom del projecte generat |
-| `[catalogSeed]` | Catàleg inicial. Per defecte: `Import:CatalogPath` o `bin/catalog/Catalog.csv` |
-
-**Sortida**: `ROUNDTRIP SUMMARY` amb dispositius, mòduls, subnets i interfícies,
-comparativa de topologia (`TopologyDiff`), re-exportació i comparativa de tags
-(`Tags`) i del mapa d'adreces (`HwAddr`), i el resultat final `PASS`/`FAIL`
-(exit code `0`/`1`).
-
-**Blocs de programa**: al PAS 1-3 s'exporten també els blocs (`workDir\blocks\`,
-que es buida abans, + `Blocks.csv`; els protegits se salten). Després del
-pipeline (PAS 4b) s'importen al projecte generat amb el mateix servei de
-`--generate-blocks`, es compila i es desa sempre. Al PAS 5 es re-inspeccionen i
-es comparen per dispositiu/grup/nom/tipus/número/llenguatge (línia `Blocks` del
-resum). Un bloc **fallit** o **no reproduït** fa `FAIL`; els errors de
-compilació es mostren però no fan fallar el test (poden venir dels dispositius
-GSD que no s'han pogut crear). Només es comparen les metadades, no el
-contingut XML.
-
-**Nota**: connecta a TIA Portal en mode headless i fa diverses obertures/desa
-de projectes.
 
 ---
 
@@ -438,46 +366,12 @@ Qualsevol altre valor mostra el missatge de comandaments suportats:
 
 ```
 Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
---xlsx-to-csv | --verify-readers | --validate-docs | --gen-devices-sandbox |
---generate-project | --roundtrip-test | --diff-topology | --dump-type-id |
+--xlsx-to-csv | --verify-readers | --validate-docs |
+--generate-project | --diff-topology | --dump-type-id |
 --plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
---dump-hw-items | --gsd-cax-poc | --export-cax-project | --import-db | --db-to-csv
+--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
+--export-cax-project | --import-db | --db-to-csv
 ```
-
----
-
-## 17. `--gsd-cax-poc`
-
-PoC de la via **CAx (AML)** per a dispositius GSD/GSDML de tercers: exporta el
-projecte font a un fitxer `.aml` (`CaxProvider.Export`) i l'importa en un
-projecte sandbox nou (`CaxProvider.Import` amb `CaxImportOptions.RetainTiaDevice`),
-tot sense `CreateWithItem` (bloquejat per la llicència `gsdml`). Verifica que el
-dispositiu, el submòdul `06 process data words` i les adreces I/Q es creen
-correctament i sense errors de llicència.
-
-> **Nota**: l'export per dispositiu (`Export(Device,...)`) llança una
-> `NullReferenceException` amb dispositius GSD a V21; es fa servir l'export del
-> **projecte sencer** i l'import de tot el golden AML.
-> L'extensió del fitxer CAx és **`.aml`** (no `.amlx`).
-
-```
-TiaOpennessApp --gsd-cax-poc <srcProject> <targetDir> <projectName> [deviceName]
-```
-
-| Argument | Descripció |
-|----------|------------|
-| `<srcProject>` | Projecte `.ap21` font amb els dispositius GSD ja inserits (p. ex. `TEST_TIAO.ap21`) |
-| `<targetDir>` | Directori on es crearà el projecte sandbox |
-| `<projectName>` | Nom del projecte sandbox |
-| `[deviceName]` | Fragment del nom del dispositiu GSD a provar. Per defecte: el primer dispositiu `IsGsd` del projecte |
-
-**Sortida**: resultats d'export (`State`, `Errors`, `Warnings`, missatges),
-grandària del `.aml`, resultats d'import, verificació al sandbox (dispositiu,
-submòdul, rangs I/Q) i `RESULTAT: PASS` / `FAIL`.
-
-**Gates**: si l'export o l'import llancen excepció o errors de llicència
-`gsdml`, s'atura amb `FAIL (gate)` per decidir si la via CAx és viable abans
-d'integrar-la al pipeline.
 
 ---
 
@@ -700,8 +594,9 @@ TiaOpennessApp --dump-blocks <projectPath> [deviceFilter]
 Les comandes que accepten `[catalogCsv]` opcional el resolen així:
 
 1. Valor de la clau `Import:CatalogPath` (si el fitxer existeix).
-2. Si no: `<directori del .exe>/catalog/Catalog.csv` (p. ex.
-   `TiaOApp\catalog\Catalog.csv`).
+2. Si no: `catalog\Catalog.csv` a l'arrel del projecte (la carpeta amb
+   `TiaOpennessApp.csproj`, buscant des de l'executable).
+3. Si no: `catalog\Catalog.csv` al costat de l'executable (paquet distribuït).
 
 `--csv-to-xlsx`, `--generate-template` i les comandes de generació esperen dins
 de `<docsDir>` els fitxers amb noms fixos:
@@ -732,9 +627,6 @@ TiaOpennessApp.exe --export-docs "C:\Users\DPTO_ELECT\Documents\Automation\AE82\
 # Comparar dues topologies (JSON generats externament)
 TiaOpennessApp.exe --diff-topology "topologia\esperada.json" "topologia\actual.json"
 
-# Prova integral (font -> export -> generació -> comparació)
-TiaOpennessApp.exe --roundtrip-test "..\Automation\AE82\AE82.ap21" "imports\rt" "..\Automation" "RT_New"
-
 # Generar la plantilla XLSX
 TiaOpennessApp.exe --generate-template "imports\template.xlsx"
 
@@ -751,8 +643,8 @@ TiaOpennessApp.exe --import-db
 TiaOpennessApp.exe --db-to-csv
 ```
 
-> **Nota**: les comandes que obren o generen projectes (`--gen-devices-sandbox`,
-> `--generate-project`, `--roundtrip-test`, `--dump-type-id`, `--plug-diagnose`,
+> **Nota**: les comandes que obren o generen projectes (`--generate-project`,
+> `--dump-type-id`, `--plug-diagnose`,
 > `--export-docs`, `--dump-subnets`, `--dump-interfaces`) requereixen TIA Portal
 > V21 amb Openness instal·lat, l'usuari al grup `Siemens TIA Openness` i
 > l'executable a l'AllowList (executar `fix_allowlist.bat` com a administrador

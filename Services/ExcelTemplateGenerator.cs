@@ -23,11 +23,6 @@ namespace TiaOpennessApp.Services
                 .ToList();
         }
 
-        public void SaveTemplate(string path)
-        {
-            Save(path, new GenerationDocument());
-        }
-
         public void SaveDocument(string path, GenerationDocument document)
         {
             Save(path, document);

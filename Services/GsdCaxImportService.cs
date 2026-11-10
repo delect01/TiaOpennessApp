@@ -37,12 +37,6 @@ namespace TiaOpennessApp.Services
             _project = project;
         }
 
-        public bool HasGsdDevices()
-        {
-            return DevicesAndNetworksService.EnumerateAllDevices(_project)
-                .Any(d => d.IsGsd);
-        }
-
         public GsdCaxImportReport ImportGoldenAndKeep(string amlPath, IReadOnlyCollection<string> keepDeviceNames)
         {
             var report = new GsdCaxImportReport();

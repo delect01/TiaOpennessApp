@@ -11,11 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="TiaOApp\**\*.cs" />
-    <Compile Remove="_restore\**\*.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Reference Include="Siemens.Engineering.Base">
       <HintPath>C:\Program Files\Siemens\Automation\Portal V21\PublicAPI\V21\net48\Siemens.Engineering.Base.dll</HintPath>
       <Private>false</Private>

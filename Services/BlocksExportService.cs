@@ -487,24 +487,6 @@ namespace TiaOpennessApp.Services
             return device == null ? null : FindPlcSoftware(device);
         }
 
-        public string? GetCpuTypeIdentifier(string deviceName)
-        {
-            Device? device = FindDevice(deviceName);
-            if (device == null)
-                return null;
-
-            return TagsExportService.FindSoftwareContainer(device)?.OwnedBy?.TypeIdentifier;
-        }
-
-        public string? GetCpuName(string deviceName)
-        {
-            Device? device = FindDevice(deviceName);
-            if (device == null)
-                return null;
-
-            return TagsExportService.FindSoftwareContainer(device)?.OwnedBy?.Name;
-        }
-
         private static PlcSoftware? FindPlcSoftware(Device device)
         {
             return TagsExportService.FindSoftwareContainer(device)?.Software as PlcSoftware;
