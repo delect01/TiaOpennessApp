@@ -844,10 +844,24 @@ namespace TiaOpennessApp
                     return;
                 }
 
-                List<CatalogEntry> types = CatalogService.Load(args[1]);
-                CatalogKey privateKey = CatalogKey.Load(args[4]);
-                string packageDir = ApprovedCatalog.Publish(types, args[3], args[2], privateKey,
-                    publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+                List<CatalogEntry> types;
+                CatalogKey privateKey;
+                string packageDir;
+                try
+                {
+                    types = CatalogService.Load(args[1]);
+                    privateKey = CatalogKey.Load(args[4]);
+                    packageDir = ApprovedCatalog.Publish(types, args[3], args[2], privateKey,
+                        publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
+                                           || ex is ArgumentException || ex is InvalidOperationException
+                                           || ex is InvalidDataException)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                    Environment.ExitCode = 1;
+                    return;
+                }
 
                 CatalogVerification check = ApprovedCatalog.Verify(packageDir, privateKey.PublicOnly());
                 Console.WriteLine($"Published:   {packageDir}");

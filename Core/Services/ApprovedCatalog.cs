@@ -219,7 +219,18 @@ namespace TiaOpennessApp.Services
             if (!privateKey.HasPrivateKey)
                 throw new InvalidOperationException("Publishing requires the private catalog key.");
 
-            string packageDir = Path.Combine(Path.GetFullPath(shareRoot), PackagePrefix + version);
+            string root = Path.GetFullPath(shareRoot);
+            try
+            {
+                Directory.CreateDirectory(root);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                throw new IOException($"Cannot reach or create the catalog folder '{root}': {ex.Message} " +
+                                      "Check the network path and that you have write permission.", ex);
+            }
+
+            string packageDir = Path.Combine(root, PackagePrefix + version);
             if (Directory.Exists(packageDir))
                 throw new IOException($"Catalog version already exists: {packageDir}");
 
