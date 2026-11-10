@@ -183,10 +183,177 @@ namespace TiaOpennessApp.Services
                          || p.Item.Action == BlockGenerationAction.Overridden)
                 .ToList());
 
+            // Els accessos absoluts (P#DB1.DBX0.0, %DB5.DBW2...) depenen del número del
+            // bloc: si un bloc de la plantilla o un d'importat abans ha ocupat el número
+            // original, es restaura.
+            RestoreBlockNumbers(pending
+                .Where(p => !IsType(p.Spec) && !IsTagTable(p.Spec)
+                         && (p.Item.Action == BlockGenerationAction.Imported
+                             || p.Item.Action == BlockGenerationAction.Overridden))
+                .ToList());
+
             if (options.Compile)
                 Compile(softwareByDevice.Values, report);
 
             return report;
+        }
+
+        /// <summary>
+        /// Torna a posar a cada bloc importat el número que tenia a l'XML exportat.
+        /// Si el número l'ocupa un altre bloc que no el reclama, aquest es mou a un número lliure.
+        /// </summary>
+        private static void RestoreBlockNumbers(List<PendingImport> imported)
+        {
+            foreach (var bySoftware in imported.GroupBy(p => p.Software))
+            {
+                PlcSoftware software = bySoftware.Key;
+                string device = bySoftware.First().Spec.Device;
+
+                // Número esperat per bloc (de l'XML).
+                var expected = new List<(PendingImport P, int Number)>();
+                foreach (PendingImport p in bySoftware)
+                {
+                    int? n = ReadBlockNumber(p.File.FullName);
+                    if (n.HasValue && n.Value > 0)
+                        expected.Add((p, n.Value));
+                }
+                if (expected.Count == 0)
+                    continue;
+
+                List<PlcBlock> all = EnumerateBlocks(software).ToList();
+                var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in expected)
+                    claimed.Add(NumberKey(e.P.Spec.BlockType, e.Number));
+
+                int fixedCount = 0;
+                var warnings = new List<string>();
+                foreach (var (p, number) in expected)
+                {
+                    PlcBlock? block = all.FirstOrDefault(b =>
+                        string.Equals(Safe(() => b.Name), p.Spec.Name, StringComparison.OrdinalIgnoreCase));
+                    if (block == null)
+                        continue;
+
+                    string kind = NumberKind(block);
+                    try
+                    {
+                        // TIA admet números repetits fins a compilar; llavors renumera el bloc
+                        // amb AutoNumber. Per això es mira l'ocupant encara que el número ja coincideixi.
+                        PlcBlock? occupant = all.FirstOrDefault(b => !ReferenceEquals(b, block)
+                            && NumberKind(b) == kind && Safe(() => (int?)b.Number) == number);
+                        bool alreadyOk = Safe(() => (int?)block.Number) == number;
+                        if (alreadyOk && occupant == null)
+                        {
+                            TrySet(() => block.AutoNumber = false);
+                            continue;
+                        }
+                        if (occupant != null)
+                        {
+                            string occName = Safe(() => occupant.Name) ?? "?";
+                            if (bySoftware.Any(o => string.Equals(o.Spec.Name, occName, StringComparison.OrdinalIgnoreCase))
+                                && claimed.Contains(NumberKey(kind, number)) && expected.Count(x =>
+                                    NumberKind(x.P.Spec.BlockType) == kind && x.Number == number) > 1)
+                            {
+                                warnings.Add($"{p.Spec.Name}: {kind}{number} reclamat per més d'un bloc");
+                                continue;
+                            }
+
+                            int free = FirstFreeNumber(all, kind, claimed);
+                            occupant.AutoNumber = false;
+                            occupant.Number = free;
+                            claimed.Add(NumberKey(kind, free));
+                            Console.WriteLine($"  Número: {occName} passa a {kind}{free} per alliberar {kind}{number}.");
+                        }
+
+                        block.AutoNumber = false;
+                        block.Number = number;
+                        fixedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"{p.Spec.Name} → {kind}{number}: {ShortMessage(ex)}");
+                    }
+                }
+
+                if (fixedCount > 0 || warnings.Count > 0)
+                    Console.WriteLine($"  {device}: {fixedCount} bloc(s) renumerats al número original" +
+                                      (warnings.Count > 0 ? $", {warnings.Count} no." : "."));
+                foreach (string w in warnings.Take(10))
+                    Console.WriteLine($"    (avís número) {w}");
+            }
+        }
+
+        private static string NumberKind(PlcBlock block) => block switch
+        {
+            DataBlock => "DB",
+            FB => "FB",
+            FC => "FC",
+            OB => "OB",
+            _ => block.GetType().Name,
+        };
+
+        private static string NumberKind(string? blockType)
+        {
+            string t = (blockType ?? string.Empty).Trim().ToUpperInvariant();
+            if (t.EndsWith("DB", StringComparison.Ordinal)) return "DB";
+            if (t.StartsWith("FB", StringComparison.Ordinal)) return "FB";
+            if (t.StartsWith("FC", StringComparison.Ordinal)) return "FC";
+            if (t.StartsWith("OB", StringComparison.Ordinal)) return "OB";
+            return t;
+        }
+
+        private static string NumberKey(string kindOrType, int number) =>
+            (kindOrType is "DB" or "FB" or "FC" or "OB" ? kindOrType : NumberKind(kindOrType)) + number;
+
+        private static int FirstFreeNumber(List<PlcBlock> all, string kind, HashSet<string> claimed)
+        {
+            var used = new HashSet<int>(all.Where(b => NumberKind(b) == kind)
+                .Select(b => Safe(() => (int?)b.Number) ?? 0));
+            int n = 100;
+            while (used.Contains(n) || claimed.Contains(kind + n))
+                n++;
+            return n;
+        }
+
+        private static int? ReadBlockNumber(string xmlPath)
+        {
+            try
+            {
+                System.Xml.Linq.XElement? attrs = System.Xml.Linq.XDocument.Load(xmlPath).Root?
+                    .Elements().FirstOrDefault(e => e.Name.LocalName.StartsWith("SW.Blocks.", StringComparison.Ordinal))?
+                    .Elements().FirstOrDefault(e => e.Name.LocalName == "AttributeList");
+                string? v = attrs?.Elements().FirstOrDefault(e => e.Name.LocalName == "Number")?.Value;
+                return int.TryParse(v, out int n) ? n : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static IEnumerable<PlcBlock> EnumerateBlocks(PlcSoftware software)
+        {
+            var result = new List<PlcBlock>();
+            void User(PlcBlockGroup g)
+            {
+                foreach (PlcBlock b in g.Blocks) result.Add(b);
+                foreach (PlcBlockUserGroup c in g.Groups) User(c);
+            }
+            void Sys(PlcSystemBlockGroupComposition groups)
+            {
+                try
+                {
+                    foreach (PlcSystemBlockGroup g in groups)
+                    {
+                        try { foreach (PlcBlock b in g.Blocks) result.Add(b); } catch { }
+                        Sys(g.Groups);
+                    }
+                }
+                catch { /* grup de sistema no accessible */ }
+            }
+            User(software.BlockGroup);
+            Sys(software.BlockGroup.SystemBlockGroups);
+            return result;
         }
 
         /// <summary>
@@ -282,6 +449,27 @@ namespace TiaOpennessApp.Services
                         TrySet(() => { if (!string.IsNullOrEmpty(post)) created.PostProcessingName = post; });
 
                         Console.WriteLine($"  Grup de runtime F '{groupName}' refet amb {fbName} / {dbName}.");
+
+                        // El DB principal F de la plantilla (p.ex. Main_Safety_RTG1_DB, DB1) queda
+                        // orfe si els blocs importats en porten un altre (Main_Safety_RTG1_DB_1):
+                        // s'esborra perquè no ocupi el número d'un bloc importat.
+                        string orphanName = fbName + "_DB";
+                        if (!string.Equals(orphanName, dbName, StringComparison.OrdinalIgnoreCase)
+                            && !items.Any(i => string.Equals(i.Spec.Name, orphanName, StringComparison.OrdinalIgnoreCase))
+                            && FindBlock(software, orphanName) is InstanceDB orphan
+                            && string.Equals(Safe(() => orphan.InstanceOfName), fbName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            int? orphanNumber = Safe(() => (int?)orphan.Number);
+                            try
+                            {
+                                orphan.Delete();
+                                Console.WriteLine($"  DB F de la plantilla '{orphanName}' (DB{orphanNumber}) esborrat: el grup F usa {dbName}.");
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"  (avís seguretat) no s'ha pogut esborrar '{orphanName}' de la plantilla: {ShortMessage(ex)}");
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
