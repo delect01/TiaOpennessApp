@@ -287,7 +287,16 @@ be upgraded ("Upgrade to current catalog" with a change preview).
       Trusted public key = embedded resource `Core\Security\catalog-public-key.json` (absent →
       nothing verifies). Private keys are git-ignored (`*private-key*.json`).
       CLI for the administrator until E1: `--catalog-keygen`, `--catalog-publish`, `--catalog-verify`.
-- [ ] `DbGenerationReader : IGenerationReader` + CLI `--generate-project-db` and menu option, with the approval check.
+- [x] `DbGenerationReader : IGenerationReader` + CLI `--generate-project-db`, with the approval check.
+      Done 2026-11-11: `DbGenerationReader` (project.db → `GenerationDocument`, read-only, requires
+      schema v2), `ApprovalService` (E0 rules: every device/module type approved, device types are
+      station/root types, project order number + type identifier equal the approved ones; project
+      catalog version, if recorded, must match), generation uses the **approved** types only.
+      `--check-project-db` (no TIA) and `--generate-project-db` share `PrepareProjectDb`; the
+      generation pipeline now also accepts an already-read document. `--public-key=<file>` is for
+      tests only. Verified without TIA: approved project passes; unapproved type, changed order
+      number and a catalog signed with another key are refused with reasons.
+      Pending: a TIA run of `--generate-project-db` with the real signed catalog; menu option (E4).
 - [ ] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).
 - **Gate:** generate a TIA project from a `.db` from the console; a tampered `.db` or catalog is refused with clear reasons.
 

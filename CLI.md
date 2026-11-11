@@ -51,6 +51,8 @@ dotnet run -- <command> [arguments...]
 | `--catalog-keygen` | (Administrador) Crea el parell de claus per signar el catàleg aprovat |
 | `--catalog-publish` | (Administrador) Publica una versió signada del catàleg aprovat a la carpeta de xarxa |
 | `--catalog-verify` | Comprova la signatura i la integritat d'un catàleg aprovat |
+| `--check-project-db` | Comprova un `project.db` contra el catàleg aprovat i el valida, sense TIA |
+| `--generate-project-db` | Genera el projecte TIA des d'un `project.db` aprovat i vàlid |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -375,7 +377,8 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags |
 --export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
 --export-cax-project | --import-db | --db-to-csv | --db-info |
---catalog-keygen | --catalog-publish | --catalog-verify
+--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db |
+--generate-project-db
 ```
 
 ---
@@ -510,6 +513,35 @@ TiaOpennessApp --catalog-verify <shareRoot|packageDir> [publicKey]
 | `--catalog-keygen` | Crea `catalog-private-key.json` i `catalog-public-key.json`. La privada es queda als PC d'administrador (mai al repositori; `.gitignore` la ignora). La pública es copia a `Core\Security\catalog-public-key.json` i es recompila. No sobreescriu claus existents. |
 | `--catalog-publish` | Crea `shareRoot\catalog-v<version>` amb els tipus del CSV i el contingut de `extraFilesDir`, el signa i actualitza `current.txt`. No sobreescriu una versió existent. |
 | `--catalog-verify` | Comprova la signatura amb la clau pública indicada o, si no se n'indica cap, amb la que porta l'aplicació. Detecta fitxers modificats, eliminats o afegits. Codi de sortida 0 = vàlid, 1 = no vàlid. |
+
+---
+
+## 20d. `--check-project-db` i `--generate-project-db`
+
+Generen (o només comproven) un projecte a partir d'un `project.db` (esquema v2) en
+lloc dels CSV.
+
+```
+TiaOpennessApp --check-project-db <project.db> <approvedCatalogRoot>
+TiaOpennessApp --generate-project-db <project.db> <approvedCatalogRoot> <targetDirectory> <projectName> [goldenAml]
+```
+
+Passos:
+
+1. Llegeix `project.db` (si és v1, cal actualitzar-lo abans amb `--db-info`).
+2. Carrega el catàleg aprovat (la versió que indica el projecte o, si no n'indica
+   cap, la de `current.txt`) i en comprova la signatura amb la clau que porta
+   l'aplicació.
+3. **Comprovació d'aprovació**: tots els tipus de dispositiu i de mòdul han de ser
+   al catàleg aprovat, els dispositius han de ser tipus d'estació, i la referència
+   i l'identificador de tipus del projecte han de coincidir amb els aprovats.
+4. Validació normal, feta amb els tipus **aprovats** (no amb la còpia del projecte).
+5. Només `--generate-project-db`: genera el projecte TIA amb el mateix procés que
+   `--generate-project`.
+
+Si alguna comprovació falla, s'atura i en mostra els motius (codi de sortida 1).
+L'opció `--public-key=<fitxer>` substitueix la clau de l'aplicació; només per a
+proves.
 
 ---
 
