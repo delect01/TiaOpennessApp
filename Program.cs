@@ -450,6 +450,43 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--check-project-db" || command == "--generate-project-db")
+            {
+                bool generate = command == "--generate-project-db";
+                string? publicKeyPath = args.Skip(1).FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))
+                    ?.Substring("--public-key=".Length);
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+
+                if (positional.Length < (generate ? 4 : 2))
+                {
+                    Console.WriteLine(generate
+                        ? "Usage: TiaOpennessApp --generate-project-db <project.db> <approvedCatalogRoot> <targetDirectory> <projectName> [goldenAml] [--public-key=<file>]"
+                        : "Usage: TiaOpennessApp --check-project-db <project.db> <approvedCatalogRoot> [--public-key=<file>]");
+                    return;
+                }
+
+                PreparedProjectDb? prepared = PrepareProjectDb(positional[0], positional[1], publicKeyPath);
+                if (prepared == null)
+                {
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
+                if (!generate)
+                {
+                    Console.WriteLine("\nResult: APPROVED and VALID - the project can be generated.");
+                    return;
+                }
+
+                using var dbGenConnection = new TiaConnection();
+                dbGenConnection.ConnectHeadless();
+                Console.WriteLine("Connected to TIA Portal (headless).");
+                GenerationRunResult? run = RunFullGenerationPipeline(dbGenConnection, prepared.Parse, prepared.Catalog,
+                    prepared.ProjectFolder, positional[2], positional[3], positional.Length >= 5 ? positional[4] : null);
+                Environment.ExitCode = run == null ? 1 : 0;
+                return;
+            }
+
             if (command == "--generate-project")
             {
                 if (args.Length < 2)
@@ -936,7 +973,7 @@ namespace TiaOpennessApp
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
                               "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
-                              "--catalog-keygen | --catalog-publish | --catalog-verify");
+                              "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)
@@ -1309,8 +1346,6 @@ namespace TiaOpennessApp
             string? projectName = null,
             string? goldenAmlPath = null)
         {
-            var result = new GenerationRunResult();
-
             GenerationParseResult parseResult = ReadCsvDocs(docsDir);
             PrintIssues(parseResult.Issues);
             if (parseResult.HasErrors)
@@ -1319,7 +1354,167 @@ namespace TiaOpennessApp
                 return null;
             }
 
-            var catalog = CatalogService.Load(catalogPath);
+            return RunFullGenerationPipeline(connection, parseResult, CatalogService.Load(catalogPath), docsDir,
+                targetDirectory, projectName, goldenAmlPath);
+        }
+
+        /// <summary>
+        /// Returns the AML to import: the golden itself, or a patched copy (next to it) where every GSD
+        /// device of the documents that the golden lacks is a copy of a golden device of the same type.
+        /// </summary>
+        private static string AddMissingGsdDevicesToGolden(string goldenAml, GenerationDocument doc,
+            List<string> gsdDeviceNames, List<CatalogEntry> gsdCatalogEntries)
+        {
+            List<string> goldenNames;
+            try
+            {
+                goldenNames = GoldenAmlCloner.ListDeviceNames(goldenAml);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  (avís) no s'ha pogut llegir el golden AML per afegir dispositius GSD nous: {ex.Message}");
+                return goldenAml;
+            }
+
+            var inGolden = new HashSet<string>(goldenNames, StringComparer.OrdinalIgnoreCase);
+            var requests = new List<AmlCloneRequest>();
+            foreach (string name in gsdDeviceNames.Where(n => !inGolden.Contains(n)))
+            {
+                DeviceSpec? spec = doc.Devices.FirstOrDefault(d => string.Equals(d.DeviceName, name, StringComparison.OrdinalIgnoreCase));
+                if (spec == null)
+                    continue;
+
+                // Template: another device of the documents with the same type that the golden has.
+                string? template = doc.Devices
+                    .Where(d => string.Equals(d.TypeKey, spec.TypeKey, StringComparison.OrdinalIgnoreCase) && inGolden.Contains(d.DeviceName))
+                    .Select(d => d.DeviceName)
+                    .FirstOrDefault();
+                string? identifier = gsdCatalogEntries
+                    .FirstOrDefault(e => string.Equals(e.TypeKey, spec.TypeKey, StringComparison.OrdinalIgnoreCase))?.Identifier;
+                string? ip = doc.Interfaces
+                    .FirstOrDefault(i => string.Equals(i.Device, name, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(i.IpAddress))
+                    ?.IpAddress;
+
+                requests.Add(new AmlCloneRequest { NewName = name, TemplateName = template, TypeIdentifier = identifier, IpAddress = ip });
+            }
+
+            if (requests.Count == 0)
+                return goldenAml;
+
+            string patched = Path.Combine(Path.GetDirectoryName(goldenAml)!,
+                Path.GetFileNameWithoutExtension(goldenAml) + "_new_gsd.aml");
+            AmlCloneReport cloneReport = GoldenAmlCloner.AddClones(goldenAml, patched, requests);
+            foreach (string cloned in cloneReport.Cloned)
+                Console.WriteLine($"  GSD nou al golden: {cloned}");
+            foreach (string error in cloneReport.Errors)
+                Console.WriteLine($"  (avís) GSD no afegit al golden: {error}");
+            return cloneReport.Cloned.Count > 0 ? patched : goldenAml;
+        }
+
+        private sealed class PreparedProjectDb
+        {
+            public GenerationParseResult Parse { get; set; } = new GenerationParseResult();
+            public List<CatalogEntry> Catalog { get; set; } = new List<CatalogEntry>();
+            public string ProjectFolder { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// Reads project.db, verifies the approved catalog (signature + files), checks the project
+        /// against it and runs the normal validation with the APPROVED types.
+        /// Returns null (after printing the reasons) when the project must not be generated.
+        /// </summary>
+        private static PreparedProjectDb? PrepareProjectDb(string dbPath, string approvedRoot, string? publicKeyPath)
+        {
+            string fullDb = Path.GetFullPath(dbPath);
+            Console.WriteLine($"Project database: {fullDb}");
+            if (!File.Exists(fullDb))
+            {
+                Console.WriteLine("ERROR: project database not found.");
+                return null;
+            }
+
+            var reader = new DbGenerationReader(fullDb);
+            GenerationParseResult parse = reader.Read();
+            PrintIssues(parse.Issues);
+            if (parse.HasErrors)
+            {
+                Console.WriteLine("Aborted: the project database cannot be read.");
+                return null;
+            }
+            GenerationDocument doc = parse.Document;
+            Console.WriteLine($"  {doc.Devices.Count} devices, {doc.Modules.Count} modules, {doc.Subnets.Count} subnets, " +
+                              $"{doc.Interfaces.Count} interfaces, {doc.ModuleAddresses.Count} addresses, " +
+                              $"{doc.IoTags.Count} I/O tags, {doc.Blocks.Count} blocks");
+
+            reader.Info.TryGetValue(ProjectDatabase.InfoKeys.CatalogVersion, out string? projectCatalogVersion);
+
+            Console.WriteLine("\n═══ APPROVED CATALOG ═══");
+            ApprovedCatalog approved;
+            try
+            {
+                CatalogKey? trusted = publicKeyPath == null ? null : CatalogKey.Load(publicKeyPath).PublicOnly();
+                if (trusted != null)
+                    Console.WriteLine($"  (test) trusted key from {publicKeyPath}, id {trusted.KeyId}");
+                approved = ApprovedCatalog.Load(approvedRoot, trusted,
+                    string.IsNullOrWhiteSpace(projectCatalogVersion) ? null : projectCatalogVersion);
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is UnauthorizedAccessException)
+            {
+                Console.WriteLine($"ERROR: {ex.Message}");
+                Console.WriteLine("Aborted: no valid approved catalog.");
+                return null;
+            }
+            Console.WriteLine($"  v{approved.Version} ({approved.Types.Count} types) - {approved.PackageDir}");
+
+            Console.WriteLine("\n═══ APPROVAL CHECK ═══");
+            ApprovalReport approval = ApprovalService.Check(doc, reader.ProjectCatalog, approved, projectCatalogVersion);
+            foreach (string warning in approval.Warnings)
+                Console.WriteLine($"  WARN  {warning}");
+            foreach (string error in approval.Errors)
+                Console.WriteLine($"  ERROR {error}");
+            Console.WriteLine($"Result: {approval.Errors.Count} error(s), {approval.Warnings.Count} warning(s).");
+            if (!approval.IsApproved)
+            {
+                Console.WriteLine("Aborted: the project uses elements that are not approved.");
+                return null;
+            }
+
+            string projectFolder = Path.GetDirectoryName(fullDb)!;
+            List<CatalogEntry> catalog = ApprovalService.GenerationCatalog(approved);
+            ValidationReport validation = new ValidationService(catalog, projectFolder).Validate(doc);
+
+            Console.WriteLine("\n═══ VALIDATION ═══");
+            foreach (var issue in validation.Issues)
+            {
+                string level = issue.Level == ParseIssueLevel.Error ? "ERROR" : "WARN ";
+                string item = issue.Item.Length > 0 ? issue.Section + " · " + issue.Item : issue.Section;
+                Console.WriteLine($"  {level} {item}: {issue.Message}");
+            }
+            Console.WriteLine($"Result: {validation.ErrorCount} error(s), {validation.WarningCount} warning(s).");
+            if (validation.HasErrors)
+            {
+                Console.WriteLine("Aborted: validation errors.");
+                return null;
+            }
+
+            return new PreparedProjectDb { Parse = parse, Catalog = catalog, ProjectFolder = projectFolder };
+        }
+
+        /// <summary>
+        /// Generation from an already-read document (CSV, Excel or project.db). <paramref name="docsDir"/>
+        /// is the folder that relative files (block XML) are resolved against.
+        /// </summary>
+        private static GenerationRunResult? RunFullGenerationPipeline(
+            TiaConnection connection,
+            GenerationParseResult parseResult,
+            List<CatalogEntry> catalog,
+            string docsDir,
+            string? targetDirectory,
+            string? projectName,
+            string? goldenAmlPath)
+        {
+            var result = new GenerationRunResult();
+
             var validator = new ValidationService(catalog, docsDir);
             ValidationReport validation = validator.Validate(parseResult.Document);
 
@@ -1382,6 +1577,11 @@ namespace TiaOpennessApp
                     Console.WriteLine("\n═══ CAX GOLDEN IMPORT ═══");
                     var gsdImport = new GsdCaxImportService(project);
                     string resolvedGoldenAml = Path.GetFullPath(goldenAmlPath!);
+
+                    // GSD devices that are new or renamed in the documents are not in the golden:
+                    // copy a device of the same type inside the AML so they can be imported too.
+                    resolvedGoldenAml = AddMissingGsdDevicesToGolden(resolvedGoldenAml, parseResult.Document,
+                        keepNames, gsdCatalogEntries);
                     GsdCaxImportReport goldenReport = gsdImport.ImportGoldenAndKeep(resolvedGoldenAml, keepNames);
                     string status = goldenReport.ImportOk ? "OK" : "AMB ERRORS";
                     Console.WriteLine($"  Import {status}: {goldenReport.ImportedDeviceCount} dispositiu(s) al projecte, " +
