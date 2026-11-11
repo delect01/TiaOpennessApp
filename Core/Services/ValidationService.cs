@@ -188,6 +188,50 @@ namespace TiaOpennessApp.Services
                     Error("ModuleAddresses", addr.Device + " / " + addr.ModuleName,
                         $"IoType invàlid: '{addr.IoType}' (esperat 'I' o 'Q').");
             }
+
+            ValidateAddressOverlaps(doc);
+        }
+
+        /// <summary>
+        /// I and Q byte ranges must not overlap inside the same address space (one per IO system,
+        /// taken from the device's PROFINET interface). Length is in bits, rounded up to bytes.
+        /// TIA rejects an overlapping start address ("This address is already being used").
+        /// </summary>
+        private void ValidateAddressOverlaps(GenerationDocument doc)
+        {
+            string AddressSpace(string device)
+            {
+                InterfaceSpec? io = doc.Interfaces.FirstOrDefault(i =>
+                    i.Device.Equals(device, StringComparison.OrdinalIgnoreCase) && i.MasterIoSystem.Length > 0);
+                return io == null ? string.Empty : io.Subnet + "\u0001" + io.MasterIoSystem + "\u0001" + io.MasterIoSystemNumber;
+            }
+
+            var ranges = doc.ModuleAddresses
+                .Where(a => (a.IoType == "I" || a.IoType == "Q") && a.Length > 0 && a.StartAddress >= 0)
+                .Select(a => new
+                {
+                    Address = a,
+                    Space = AddressSpace(a.Device) + "\u0001" + a.IoType,
+                    First = a.StartAddress,
+                    Last = a.StartAddress + (a.Length + 7) / 8 - 1,
+                })
+                .ToList();
+
+            foreach (var group in ranges.GroupBy(r => r.Space, StringComparer.OrdinalIgnoreCase))
+            {
+                var sorted = group.OrderBy(r => r.First).ToList();
+                for (int i = 0; i < sorted.Count; i++)
+                {
+                    for (int j = i + 1; j < sorted.Count && sorted[j].First <= sorted[i].Last; j++)
+                    {
+                        var a = sorted[i];
+                        var b = sorted[j];
+                        Error("ModuleAddresses", b.Address.Device + " / " + b.Address.ModuleName,
+                            $"{b.Address.IoType}{b.First}..{b.Last} se solapa amb {a.Address.Device} / {a.Address.ModuleName} " +
+                            $"{a.Address.IoType}{a.First}..{a.Last}.");
+                    }
+                }
+            }
         }
 
         private void ValidateIpv4(GenerationDocument doc)
