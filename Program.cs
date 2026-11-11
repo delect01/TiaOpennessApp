@@ -450,6 +450,58 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--create-project")
+            {
+                string? keyPath = args.Skip(1).FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))
+                    ?.Substring("--public-key=".Length);
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                if (positional.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --create-project <exportsDir> <projectFolder> [approvedCatalogRoot] [--public-key=<file>]");
+                    return;
+                }
+
+                ApprovedCatalog? approvedForProject = null;
+                if (positional.Length >= 3)
+                {
+                    try
+                    {
+                        CatalogKey? trusted = keyPath == null ? null : CatalogKey.Load(keyPath).PublicOnly();
+                        approvedForProject = ApprovedCatalog.Load(positional[2], trusted);
+                    }
+                    catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is UnauthorizedAccessException)
+                    {
+                        Console.WriteLine($"ERROR: {ex.Message}");
+                        Environment.ExitCode = 1;
+                        return;
+                    }
+                }
+
+                ProjectFolderResult created = ProjectFolderService.CreateFromExport(positional[0], positional[1], approvedForProject);
+                Console.WriteLine($"Project folder: {created.ProjectFolder}");
+                if (created.Import != null)
+                    foreach (DbTableCount count in created.Import.TableCounts)
+                        Console.WriteLine($"  {count.TableName,-20} {count.Count,8}");
+                Console.WriteLine($"  source files copied  {created.CopiedFiles,8}");
+                foreach (string missing in created.MissingSourceFiles.Take(20))
+                    Console.WriteLine($"  MISSING {missing}");
+                if (created.Approval != null)
+                {
+                    foreach (string error in created.Approval.Errors)
+                        Console.WriteLine($"  NOT APPROVED {error}");
+                    Console.WriteLine(created.Approval.IsApproved
+                        ? $"  Approved against catalog v{created.Approval.CatalogVersion} (version recorded in the project)."
+                        : $"  Not approved against catalog v{created.Approval.CatalogVersion}.");
+                }
+                foreach (string warning in created.Warnings)
+                    Console.WriteLine($"  WARN: {warning}");
+                foreach (string error in created.Errors)
+                    Console.WriteLine($"  ERROR: {error}");
+                Console.WriteLine(created.Success ? "Project folder created." : "Project folder NOT created.");
+                Environment.ExitCode = created.Success ? 0 : 1;
+                return;
+            }
+
             if (command == "--check-project-db" || command == "--generate-project-db")
             {
                 bool generate = command == "--generate-project-db";
@@ -973,7 +1025,7 @@ namespace TiaOpennessApp
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
                               "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
-                              "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db");
+                              "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db | --create-project");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)

@@ -297,8 +297,17 @@ be upgraded ("Upgrade to current catalog" with a change preview).
       tests only. Verified without TIA: approved project passes; unapproved type, changed order
       number and a catalog signed with another key are refused with reasons.
       Pending: a TIA run of `--generate-project-db` with the real signed catalog; menu option (E4).
-- [ ] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).
+- [x] Import an `exports\` folder into a new project folder (CSV → `project.db`, block XML → `blocks\`).
+      Done 2026-11-11 (`Core\Services\ProjectFolderService.cs`, CLI `--create-project <exportsDir>
+      <projectFolder> [approvedCatalogRoot]`): `project.db` + `blocks\ types\ tags\`; checks every
+      block list entry has its file inside the folder; with a catalog, records `catalog_version` only
+      if the project is approved. Refuses a non-empty target or a target inside the export folder;
+      removes the half-created folder on errors. Verified: 325 sources copied, 650 tags, approved v1.
+- [x] Also done in E0 (2026-11-11): new or renamed **GSD devices** are imported by cloning a
+      same-type device inside the golden AML (`GoldenAmlCloner`), verified in TIA with UM6B_PR /
+      UM7A_PR; validator rejects **overlapping I/Q ranges** per IO system.
 - **Gate:** generate a TIA project from a `.db` from the console; a tampered `.db` or catalog is refused with clear reasons.
+  **Status 2026-11-11:** refusals verified without TIA; generation from a CSV export with new GSD devices verified in TIA (option 3). Pending: one TIA run of `--generate-project-db` with the real signed catalog.
 
 #### E1 - `TiaCatalogAdmin`
 - [ ] Seed types from an existing project export.

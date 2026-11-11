@@ -53,6 +53,7 @@ dotnet run -- <command> [arguments...]
 | `--catalog-verify` | Comprova la signatura i la integritat d'un catàleg aprovat |
 | `--check-project-db` | Comprova un `project.db` contra el catàleg aprovat i el valida, sense TIA |
 | `--generate-project-db` | Genera el projecte TIA des d'un `project.db` aprovat i vàlid |
+| `--create-project` | Crea una carpeta de projecte (`project.db` + `blocks\`, `types\`, `tags\`) a partir d'una exportació |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -378,7 +379,7 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
 --export-cax-project | --import-db | --db-to-csv | --db-info |
 --catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db |
---generate-project-db
+--generate-project-db | --create-project
 ```
 
 ---
@@ -542,6 +543,31 @@ Passos:
 Si alguna comprovació falla, s'atura i en mostra els motius (codi de sortida 1).
 L'opció `--public-key=<fitxer>` substitueix la clau de l'aplicació; només per a
 proves.
+
+---
+
+## 20e. `--create-project`
+
+Crea una carpeta de projecte autosuficient a partir d'una exportació (els CSV i les
+carpetes `blocks\`, `types\` i `tags\`):
+
+```
+<carpeta de projecte>\project.db            dades + llista de blocs (esquema v2)
+<carpeta de projecte>\blocks\ types\ tags\  XML de blocs, tipus i taules de variables
+```
+
+```
+TiaOpennessApp --create-project <exportsDir> <projectFolder> [approvedCatalogRoot]
+```
+
+- La carpeta de destí ha d'estar buida (o no existir) i no pot ser dins de l'exportació.
+- Comprova que cada bloc de la llista té el seu XML dins la carpeta.
+- Amb `[approvedCatalogRoot]`, comprova el projecte contra el catàleg aprovat i, si
+  és aprovat, hi desa la versió del catàleg; les comprovacions posteriors fan servir
+  aquesta versió.
+- Si la importació falla, no deixa cap carpeta a mitges.
+
+Després: `--generate-project-db <projectFolder>\project.db <approvedCatalogRoot> …`.
 
 ---
 
