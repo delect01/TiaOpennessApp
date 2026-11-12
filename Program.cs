@@ -1615,9 +1615,19 @@ namespace TiaOpennessApp
                     .Select(d => d.DeviceName)
                     .ToList();
 
+                List<string> missingGsd = keepNames
+                    .Where(n => DevicesAndNetworksService.FindDeviceByName(project, n) == null)
+                    .ToList();
+
                 if (keepNames.Count == 0)
                 {
                     Console.WriteLine("(avís) el catàleg té entrades GSD però cap DeviceSpec les utilitza.");
+                }
+                else if (missingGsd.Count == 0)
+                {
+                    // Re-run on a project that already has every GSD device: importing the golden again
+                    // would only produce "already exists" errors.
+                    Console.WriteLine($"\n═══ CAX GOLDEN IMPORT ═══\n  Omès: els {keepNames.Count} dispositiu(s) GSD ja són al projecte.");
                 }
                 else if (string.IsNullOrWhiteSpace(goldenAmlPath) || !File.Exists(goldenAmlPath))
                 {
