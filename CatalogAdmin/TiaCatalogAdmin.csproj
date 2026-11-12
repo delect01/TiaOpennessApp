@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Catalog administrator app (E1.4): types, kits, publish of the signed approved catalog.
+       Install only on administrator PCs (it needs the private catalog key to publish). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>TiaCatalogAdmin</RootNamespace>
+    <AssemblyName>TiaCatalogAdmin</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core\TiaOpenness.Core.csproj" />
+  </ItemGroup>
+
+</Project>

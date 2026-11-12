@@ -358,7 +358,18 @@ Steps:
       PROFINET name, unknown kit, module not allowed, modules on a fixed kit, repeated slot, bad IP.
       Note: a copy from a newer catalog version than the one recorded in the project makes the
       project fail approval until it is upgraded (E4 "upgrade to current catalog").
-- [ ] E1.4 `TiaCatalogAdmin` (WPF): types, kits, templates/block library list, publish.
+- [~] E1.4 `TiaCatalogAdmin` (WPF): types, kits, templates/block library list, publish.
+      First version 2026-11-12 (`CatalogAdmin\TiaCatalogAdmin.csproj`, net8.0-windows, uses Core;
+      built by `build.bat`): open/create the catalog source, import types from Catalog.csv; kit
+      list + detail (name, description, firmware, comment editable; fixed part read-only; allowed
+      modules with min/max slot and max count; tag templates editable); "New kit from device"
+      (export folder or project.db, one device = fixed kit, several = modular); delete kit;
+      Publish tab (folder, next version suggested from `current.txt`, private key, approved-files
+      folder; warns if the key is not the one built into the apps) and Verify with the built-in key.
+      Settings remembered in `%AppData%\TiaCatalogAdmin\settings.json`.
+      Tested hands-on by the administrator (2026-11-12): OK. Still open: templates/block library
+      are only a folder copied into the package (no per-file management yet); types only via
+      Catalog.csv import (no single add/remove).
 - **Gate:** first real signed catalog with the SEW kit; a project with a new SEW drive added from
   the kit passes the approval check and generates in TIA.
 

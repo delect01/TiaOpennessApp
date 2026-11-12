@@ -14,6 +14,8 @@
   <ItemGroup>
     <Compile Remove="Core\**" />
     <None Remove="Core\**" />
+    <Compile Remove="CatalogAdmin\**" />
+    <None Remove="CatalogAdmin\**" />
     <ProjectReference Include="Core\TiaOpenness.Core.csproj" />
   </ItemGroup>
 

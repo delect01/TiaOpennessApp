@@ -30,6 +30,14 @@ namespace TiaOpennessApp.Services
             _blocksPath = blocksPath;
         }
 
+        /// <summary>Reader for a documents folder with the standard file names (Devices.csv, ...).</summary>
+        public static CsvGenerationReader ForFolder(string docsDir)
+        {
+            string P(string file) => System.IO.Path.Combine(docsDir, file);
+            return new CsvGenerationReader(P("Devices.csv"), P("Modules.csv"), P("Subnets.csv"), P("Interfaces.csv"),
+                P("IoTags.csv"), P("ModuleAddresses.csv"), P("Blocks.csv"));
+        }
+
         /// <summary>
         /// Si és cert, l'absència de Devices/Modules/Subnets/Interfaces.csv és un
         /// avís en lloc d'un error. Ho fa servir <c>--generate-blocks</c>, on el

@@ -1,0 +1,48 @@
+<Window x:Class="TiaCatalogAdmin.NewKitWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="New kit from device" Height="560" Width="640" WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,6"
+                   Text="Source project: an export folder (Devices.csv, Modules.csv...) or a project.db. Choose one example device for a fixed kit, or several devices of the same type for a modular kit." />
+
+        <DockPanel Grid.Row="1" Margin="0,0,0,6">
+            <Button DockPanel.Dock="Right" Content="project.db…" Click="BrowseDb_Click" Margin="6,0,0,0" />
+            <Button DockPanel.Dock="Right" Content="Folder…" Click="BrowseFolder_Click" Margin="6,0,0,0" />
+            <TextBox x:Name="SourceBox" IsReadOnly="True" Background="#FFF7F7F7" />
+        </DockPanel>
+
+        <ListBox Grid.Row="2" x:Name="DeviceList" SelectionMode="Extended" DisplayMemberPath="Display" SelectionChanged="DeviceList_SelectionChanged" />
+
+        <Grid Grid.Row="3" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="90" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition /><RowDefinition /><RowDefinition />
+            </Grid.RowDefinitions>
+            <TextBlock Text="Kit id" VerticalAlignment="Center" />
+            <TextBox Grid.Column="1" x:Name="KitIdBox" ToolTip="Letters, digits, '_', '-' or '.'" />
+            <TextBlock Grid.Row="1" Text="Kit name" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" x:Name="KitNameBox" />
+            <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,6">
+                <CheckBox x:Name="ModularCheck" Content="Modular kit (head + allowed modules)" Margin="0,0,18,0" />
+                <CheckBox x:Name="TagsCheck" Content="Include I/O tags as templates" IsChecked="False" />
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="Create kit" Click="Create_Click" IsDefault="True" FontWeight="Bold" />
+            <Button Content="Cancel" IsCancel="True" Margin="0" />
+        </StackPanel>
+    </Grid>
+</Window>
