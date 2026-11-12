@@ -58,6 +58,7 @@ dotnet run -- <command> [arguments...]
 | `--kit-from-device` | (Administrador) Crea un kit a partir d'un dispositiu d'un projecte |
 | `--kit-list` | Mostra els kits d'una base de dades font o d'un catàleg aprovat |
 | `--assign-kits` | Enllaça els dispositius d'un `project.db` amb els seus kits aprovats |
+| `--add-kit` | Afegeix a un `project.db` una còpia d'un kit aprovat (adreces I/Q i tags automàtics) |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -384,7 +385,7 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --export-cax-project | --import-db | --db-to-csv | --db-info |
 --catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db |
 --generate-project-db | --create-project | --catalog-source-init | --kit-from-device |
---kit-list | --assign-kits
+--kit-list | --assign-kits | --add-kit
 ```
 
 ---
@@ -614,6 +615,29 @@ enllaçat a un kit aprovat (columna `KitId` de `Devices.csv` / `devices.kit_id`)
 en els camps bloquejats: tipus, firmware, mòduls i slots, interfícies (subxarxa i IO system) i
 longitud dels rangs I/Q. La IP, el nom PROFINET, les adreces d'inici i els tags són lliures.
 `--create-project` fa l'enllaç automàticament.
+
+### Afegir una còpia d'un kit: `--add-kit`
+
+```
+TiaOpennessApp --add-kit <project.db> <approvedCatalogRoot> <kitId> <deviceName> <ip>
+               [--pn=<nomProfinet>] [--comment=...] [--group=...] [--plc=<PLC>]
+               [--module=<opció>:<nomMòdul>:<slot>]...
+```
+
+L'usuari només dona els camps lliures (nom, IP, nom PROFINET, comentari); la resta surt
+del kit. En una sola transacció (tot o res) crea:
+
+- el dispositiu enllaçat al kit, els mòduls fixos i, en kits modulars, els escollits amb
+  `--module` (p. ex. `--module=DI16X24VDCST:{DEVICE}_1:1`; per a submòduls GSD sense slot,
+  `--module="06 process data words:UM9A_PR"`);
+- la interfície amb la subxarxa i l'IO system del kit (i el número d'IO system del projecte);
+- els rangs I/Q a la **primera adreça lliure** de l'IO system (mateix inici per a I i Q d'un
+  submòdul);
+- els tags de les plantilles del kit, al PLC que ja té els I/O tags (o el de `--plc`).
+
+Rebutja un nom, una IP o un nom PROFINET repetits, un kit inexistent, un mòdul no permès, un
+slot repetit o fora del rang, i mòduls en un kit fix. El nom PROFINET per defecte és el nom
+del dispositiu en minúscules.
 
 ---
 

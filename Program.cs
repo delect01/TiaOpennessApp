@@ -451,6 +451,63 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--add-kit")
+            {
+                string? Opt(string prefix) => args.FirstOrDefault(a => a.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))?.Substring(prefix.Length);
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                if (positional.Length < 5)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --add-kit <project.db> <approvedCatalogRoot> <kitId> <deviceName> <ip> " +
+                                      "[--pn=<profinetName>] [--comment=...] [--group=...] [--plc=<PLC>] " +
+                                      "[--module=<option>:<moduleName>:<slot>]... [--public-key=<file>]");
+                    return;
+                }
+
+                var request = new KitCopyRequest
+                {
+                    KitId = positional[2],
+                    DeviceName = positional[3],
+                    IpAddress = positional[4],
+                    PnDeviceName = Opt("--pn="),
+                    Comment = Opt("--comment="),
+                    Group = Opt("--group="),
+                    PlcDevice = Opt("--plc="),
+                };
+                foreach (string spec in args.Where(a => a.StartsWith("--module=", StringComparison.OrdinalIgnoreCase)))
+                {
+                    string[] parts = spec.Substring("--module=".Length).Split(':');
+                    request.Modules.Add(new KitModuleChoice
+                    {
+                        Option = parts[0],
+                        ModuleName = parts.Length > 1 ? parts[1] : string.Empty,
+                        Slot = parts.Length > 2 && int.TryParse(parts[2], out int slot) ? slot : (int?)null,
+                    });
+                }
+
+                try
+                {
+                    string? keyPath = Opt("--public-key=");
+                    CatalogKey? trusted = keyPath == null ? null : CatalogKey.Load(keyPath).PublicOnly();
+                    ApprovedCatalog catalogForCopy = ApprovedCatalog.Load(positional[1], trusted);
+                    using (ProjectDatabase.Open(positional[0])) { } // current schema
+                    KitCopyResult copy = KitInstanceService.AddCopy(positional[0], catalogForCopy, request);
+                    foreach (string line in copy.Created)
+                        Console.WriteLine($"  + {line}");
+                    foreach (string error in copy.Errors)
+                        Console.WriteLine($"  ERROR: {error}");
+                    Console.WriteLine(copy.Success
+                        ? $"Device '{request.DeviceName}' added from kit '{request.KitId}' (catalog v{catalogForCopy.Version})."
+                        : "Nothing was added.");
+                    Environment.ExitCode = copy.Success ? 0 : 1;
+                }
+                catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is InvalidOperationException)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
+
             if (command == "--assign-kits")
             {
                 string? keyPath = args.FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))?.Substring("--public-key=".Length);
@@ -1178,7 +1235,7 @@ namespace TiaOpennessApp
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
                               "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
                               "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db | --create-project | " +
-                              "--catalog-source-init | --kit-from-device | --kit-list | --assign-kits");
+                              "--catalog-source-init | --kit-from-device | --kit-list | --assign-kits | --add-kit");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)

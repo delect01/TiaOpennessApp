@@ -345,8 +345,19 @@ Steps:
       `--create-project` links kits automatically; `KitId` column in Devices.csv.
       Verified: 6 kits derived from the real project, all 17 devices linked and approved (v4);
       refused: unknown kit, module type not allowed, other firmware, other I/Q length.
-- [ ] E1.3 Kit instancing in Core: add a kit copy to `project.db` (name, IP, PROFINET name) with
+- [x] E1.3 Kit instancing in Core: add a kit copy to `project.db` (name, IP, PROFINET name) with
       next-free I/Q addresses and tags from templates (used by the editor in E2).
+      Done 2026-11-12 (`KitInstanceService`, CLI `--add-kit`): one transaction; device + `kit_id`,
+      fixed + chosen modules (modular kits: `--module=<option>:<name>:<slot>`, allowed type, slot
+      range, max count, no repeated slot/name), interface with the kit's subnet/IO system and the
+      project's IO-system number, I/Q at the **first free common start** for I and Q of each
+      submodule in that IO system, tags from templates on the PLC that owns the I/O tags; the copy
+      is checked against its kit before writing. Verified: SEW drive (I/Q 68), ET200SP with 3
+      modules, SEW gateway with 2 GSD submodules, Fanuc kit with tag templates (`ROBOT2_RES_1
+      %IW1027` = DIO_1 980 + 47); project still approved and valid; refused: repeated name / IP /
+      PROFINET name, unknown kit, module not allowed, modules on a fixed kit, repeated slot, bad IP.
+      Note: a copy from a newer catalog version than the one recorded in the project makes the
+      project fail approval until it is upgraded (E4 "upgrade to current catalog").
 - [ ] E1.4 `TiaCatalogAdmin` (WPF): types, kits, templates/block library list, publish.
 - **Gate:** first real signed catalog with the SEW kit; a project with a new SEW drive added from
   the kit passes the approval check and generates in TIA.
