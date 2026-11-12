@@ -38,6 +38,7 @@ namespace TiaOpennessApp.Services
             var deviceCache = new Dictionary<string, Device?>(StringComparer.OrdinalIgnoreCase);
             var plcCache = new Dictionary<string, PlcSoftware?>(StringComparer.OrdinalIgnoreCase);
             var tableCache = new Dictionary<string, Dictionary<string, PlcTagTable?>>(StringComparer.OrdinalIgnoreCase);
+            var tableErrors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (IoTagSpec tag in ioTags)
             {
@@ -89,13 +90,23 @@ namespace TiaOpennessApp.Services
 
                     if (!perDeviceTables.TryGetValue(tableName, out PlcTagTable? table))
                     {
-                        table = FindOrCreateTable(root, tableName);
-                        perDeviceTables[tableName] = table;
+                        try
+                        {
+                            table = FindOrCreateTable(root, tableName);
+                        }
+                        catch (Exception tableEx)
+                        {
+                            table = null;
+                            tableErrors[deviceKey + "\u0001" + tableName] = tableEx.Message;
+                        }
+                        perDeviceTables[tableName] = table; // remembered, also when it failed
                     }
 
                     if (table == null)
                     {
-                        report.Error = $"No s'ha pogut crear/obtenir la taula de tags '{tableName}'.";
+                        tableErrors.TryGetValue(deviceKey + "\u0001" + tableName, out string? tableError);
+                        report.Error = $"No s'ha pogut crear/obtenir la taula de tags '{tableName}'" +
+                                       (tableError == null ? "." : $": {tableError}");
                         reports.Add(report);
                         continue;
                     }
@@ -149,12 +160,29 @@ namespace TiaOpennessApp.Services
                 return null;
             }
 
-            PlcTagTable? existing = root.TagTables.Find(tableName);
+            // Tag table names are unique per PLC, but the table can live in a user group
+            // (e.g. "E/S/ETH05"): search the whole tree before creating it at the root.
+            PlcTagTable? existing = FindTableRecursive(root, tableName);
             if (existing != null) return existing;
 
             PlcTagTable created = root.TagTables.Create(tableName);
             created.Name = tableName;
             return created;
+        }
+
+        private static PlcTagTable? FindTableRecursive(PlcTagTableGroup group, string tableName)
+        {
+            PlcTagTable? table = group.TagTables.Find(tableName);
+            if (table != null)
+                return table;
+
+            foreach (PlcTagTableUserGroup child in group.Groups)
+            {
+                table = FindTableRecursive(child, tableName);
+                if (table != null)
+                    return table;
+            }
+            return null;
         }
 
         private static PlcTag CreateTag(PlcTagTable table, IoTagSpec spec)
