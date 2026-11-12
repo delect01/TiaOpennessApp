@@ -15,6 +15,7 @@ namespace TiaOpennessApp.Services
         public const string TypeKey = "TypeKey";
         public const string Firmware = "Firmware";
         public const string Comment = "Comment";
+        public const string KitId = "KitId";
         public const string Device = "Device";
         public const string IoDevice = "IoDevice";
         public const string ModuleName = "ModuleName";

@@ -24,11 +24,105 @@ namespace TiaOpennessApp.Services
         /// Every occurrence of the device name becomes <see cref="KitDefinition.DevicePlaceholder"/>.
         /// </summary>
         public static KitFromDeviceResult FromDevice(GenerationDocument doc, string deviceName, string kitId,
-            string? kitName = null, bool includeTags = true)
-        {
-            DeviceSpec? device = doc.Devices.FirstOrDefault(d => Same(d.DeviceName, deviceName))
-                ?? throw new ArgumentException($"Device '{deviceName}' is not in the project.");
+            string? kitName = null, bool includeTags = true) =>
+            FromDevices(doc, new[] { deviceName }, kitId, kitName, includeTags, modular: false);
 
+        /// <summary>
+        /// Like <see cref="FromDevice"/>; with <paramref name="modular"/> the kit keeps fixed only the head
+        /// (modules without slot or in slot 0, and the device type itself) and turns every other module of
+        /// ALL the example devices into an allowed module option (one per distinct type + I/Q layout).
+        /// </summary>
+        public static KitFromDeviceResult FromDevices(GenerationDocument doc, IReadOnlyList<string> deviceNames, string kitId,
+            string? kitName = null, bool includeTags = true, bool modular = false)
+        {
+            if (deviceNames.Count == 0)
+                throw new ArgumentException("No example device given.");
+            foreach (string n in deviceNames)
+                if (!doc.Devices.Any(d => Same(d.DeviceName, n)))
+                    throw new ArgumentException($"Device '{n}' is not in the project.");
+
+            DeviceSpec first = doc.Devices.First(d => Same(d.DeviceName, deviceNames[0]));
+            foreach (string n in deviceNames.Skip(1))
+            {
+                DeviceSpec other = doc.Devices.First(d => Same(d.DeviceName, n));
+                if (!Same(other.TypeKey, first.TypeKey))
+                    throw new ArgumentException($"Device '{n}' is a '{other.TypeKey}', not a '{first.TypeKey}' like '{first.DeviceName}'.");
+            }
+
+            KitFromDeviceResult result = modular
+                ? BuildModular(doc, first, deviceNames, kitId, kitName, includeTags)
+                : BuildFixed(doc, first, kitId, kitName, includeTags);
+            if (result.Kit.Interfaces.Count == 0)
+                result.Warnings.Add("The device has no network interface in the project.");
+            return result;
+        }
+
+        private static KitFromDeviceResult BuildModular(GenerationDocument doc, DeviceSpec first, IReadOnlyList<string> deviceNames,
+            string kitId, string? kitName, bool includeTags)
+        {
+            // The fixed part of the first device: head, interfaces, ranges of the fixed modules.
+            KitFromDeviceResult result = BuildFixed(doc, first, kitId, kitName, includeTags: false);
+            KitDefinition kit = result.Kit;
+            kit.Description = $"Modular kit derived from {string.Join(", ", deviceNames)}.";
+
+            bool IsFixed(ModuleSpec m, DeviceSpec device) =>
+                m.Slot == null || m.Slot == 0 || Same(m.TypeKey, device.TypeKey);
+
+            List<string> fixedNames = doc.Modules.Where(m => Same(m.Device, first.DeviceName) && IsFixed(m, first))
+                .Select(m => ToPattern(m.ModuleName, first.DeviceName)).ToList();
+            kit.Modules.RemoveAll(m => !fixedNames.Contains(m.ModuleName, StringComparer.OrdinalIgnoreCase));
+            kit.Addresses.RemoveAll(a => !fixedNames.Contains(a.ModuleName, StringComparer.OrdinalIgnoreCase));
+
+            var options = new Dictionary<string, KitModuleOption>(StringComparer.OrdinalIgnoreCase);
+            foreach (string deviceName in deviceNames)
+            {
+                DeviceSpec device = doc.Devices.First(d => Same(d.DeviceName, deviceName));
+                List<ModuleSpec> modules = doc.Modules.Where(m => Same(m.Device, deviceName)).ToList();
+                List<ModuleAddressSpec> addresses = doc.ModuleAddresses.Where(a => Same(a.Device, deviceName)).ToList();
+                var fixedModuleNames = new HashSet<string>(modules.Where(m => IsFixed(m, device)).Select(m => m.ModuleName), StringComparer.OrdinalIgnoreCase);
+
+                IEnumerable<string> variableNames = modules.Where(m => !IsFixed(m, device)).Select(m => m.ModuleName)
+                    .Concat(addresses.Select(a => a.ModuleName).Where(n => !fixedModuleNames.Contains(n)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                foreach (string moduleName in variableNames)
+                {
+                    ModuleSpec? row = modules.FirstOrDefault(m => Same(m.ModuleName, moduleName));
+                    List<KitAddress> ranges = addresses.Where(a => Same(a.ModuleName, moduleName))
+                        .Select(a => new KitAddress
+                        {
+                            ModuleName = KitDefinition.ModulePlaceholder,
+                            SubModuleName = ToPattern(Regex.Replace(a.SubModuleName, Regex.Escape(moduleName), KitDefinition.ModulePlaceholder, RegexOptions.IgnoreCase), deviceName),
+                            TypeIdentifier = a.TypeIdentifier,
+                            IoType = a.IoType,
+                            LengthBits = a.Length,
+                        })
+                        .OrderBy(a => a.SubModuleName).ThenBy(a => a.IoType)
+                        .ToList();
+
+                    string typeKey = row?.TypeKey ?? string.Empty;
+                    string key = typeKey + "|" + string.Join(";", ranges.Select(r => $"{r.SubModuleName} {r.IoType} {r.LengthBits} {r.TypeIdentifier}"));
+                    if (options.ContainsKey(key))
+                        continue;
+
+                    string optionName = typeKey.Length > 0
+                        ? typeKey
+                        : ranges.Select(r => r.SubModuleName).FirstOrDefault() ?? moduleName;
+                    if (options.Values.Any(o => Same(o.Name, optionName)))
+                        optionName += $" ({string.Join("/", ranges.Select(r => r.IoType + r.LengthBits))})";
+                    options[key] = new KitModuleOption { Name = optionName, TypeKey = typeKey, Addresses = ranges };
+                }
+            }
+
+            kit.AllowedModules = options.Values.OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (includeTags)
+                result.Warnings.Add("Tag templates are not derived for modular kits (module names differ per copy).");
+            return result;
+        }
+
+        private static KitFromDeviceResult BuildFixed(GenerationDocument doc, DeviceSpec device, string kitId,
+            string? kitName, bool includeTags)
+        {
             var result = new KitFromDeviceResult();
             string name = device.DeviceName;
             KitDefinition kit = result.Kit;
@@ -101,8 +195,6 @@ namespace TiaOpennessApp.Services
                                         "Rename them with {DEVICE} in the kit, or derive the kit without tags.");
             }
 
-            if (kit.Interfaces.Count == 0)
-                result.Warnings.Add("The device has no network interface in the project.");
             return result;
         }
 

@@ -200,6 +200,20 @@ namespace TiaOpennessApp.Services
                     errors.Add($"Address '{a.ModuleName}/{a.SubModuleName}': length must be > 0 bits.");
             }
 
+            foreach (KitModuleOption o in kit.AllowedModules)
+            {
+                if (string.IsNullOrWhiteSpace(o.Name))
+                    errors.Add("An allowed module has no name.");
+                if (!string.IsNullOrWhiteSpace(o.TypeKey) && Type(o.TypeKey) == null)
+                    errors.Add($"Allowed module '{o.Name}': type '{o.TypeKey}' is not in the catalog types.");
+                if (string.IsNullOrWhiteSpace(o.TypeKey) && o.Addresses.Count == 0)
+                    errors.Add($"Allowed module '{o.Name}': needs a catalog type or at least one I/Q range.");
+                if (o.MinSlot != null && o.MaxSlot != null && o.MinSlot > o.MaxSlot)
+                    errors.Add($"Allowed module '{o.Name}': slot range {o.MinSlot}..{o.MaxSlot} is empty.");
+                foreach (KitAddress a in o.Addresses.Where(a => (a.IoType != "I" && a.IoType != "Q") || a.LengthBits <= 0))
+                    errors.Add($"Allowed module '{o.Name}': range '{a.SubModuleName}' needs I/Q and a length > 0.");
+            }
+
             foreach (KitTag t in kit.Tags)
             {
                 KitAddress? range = kit.Addresses.FirstOrDefault(a =>

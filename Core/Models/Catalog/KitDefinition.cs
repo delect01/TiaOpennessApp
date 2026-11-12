@@ -27,10 +27,43 @@ namespace TiaOpennessApp.Models.Catalog
         /// <summary>Default device comment for new copies.</summary>
         public string DeviceComment { get; set; } = string.Empty;
 
+        /// <summary>Fixed modules (always present in every copy).</summary>
         public List<KitModule> Modules { get; set; } = new List<KitModule>();
         public List<KitInterface> Interfaces { get; set; } = new List<KitInterface>();
+
+        /// <summary>I/Q ranges of the fixed modules.</summary>
         public List<KitAddress> Addresses { get; set; } = new List<KitAddress>();
         public List<KitTag> Tags { get; set; } = new List<KitTag>();
+
+        /// <summary>
+        /// Modular kits (ET200SP station, SEW gateway...): module types the user may add to each copy,
+        /// besides the fixed ones. Empty = fixed layout (every copy identical).
+        /// </summary>
+        public List<KitModuleOption> AllowedModules { get; set; } = new List<KitModuleOption>();
+
+        public bool IsModular => AllowedModules.Count > 0;
+
+        /// <summary>Placeholder for the module name inside <see cref="KitModuleOption.Addresses"/>.</summary>
+        public const string ModulePlaceholder = "{MODULE}";
+    }
+
+    /// <summary>
+    /// A module the user may plug into a copy of a modular kit. Identified by its catalog
+    /// <see cref="TypeKey"/> (e.g. DI16X24VDCST) or, for GSD submodules without a catalog row,
+    /// by the type identifiers of its I/Q ranges (empty TypeKey).
+    /// </summary>
+    public sealed class KitModuleOption
+    {
+        public string Name { get; set; } = string.Empty;
+        public string TypeKey { get; set; } = string.Empty;
+
+        /// <summary>Optional limits (null = any).</summary>
+        public int? MinSlot { get; set; }
+        public int? MaxSlot { get; set; }
+        public int? MaxCount { get; set; }
+
+        /// <summary>I/Q ranges of one such module; ModuleName is "{MODULE}", SubModuleName may contain it.</summary>
+        public List<KitAddress> Addresses { get; set; } = new List<KitAddress>();
     }
 
     public sealed class KitModule

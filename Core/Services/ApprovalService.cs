@@ -48,6 +48,35 @@ namespace TiaOpennessApp.Services
             foreach (ModuleSpec module in doc.Modules)
                 CheckType(module.TypeKey, $"Module '{module.Device}/{module.ModuleName}'", approved, projectTypes, checkedTypes, report);
 
+            // E1: with kits in the catalog, every device must be a copy of an approved kit
+            // (its locked fields equal to the kit's).
+            if (approved.Kits.Count == 0)
+            {
+                report.Warnings.Add($"Catalog v{approved.Version} has no kits: devices are checked by type only.");
+                return report;
+            }
+
+            foreach (DeviceSpec device in doc.Devices)
+            {
+                if (string.IsNullOrWhiteSpace(device.KitId))
+                {
+                    List<Models.Catalog.KitDefinition> candidates = KitMatcher.Matching(doc, device, approved.Kits);
+                    report.Errors.Add($"Device '{device.DeviceName}' is not linked to an approved kit" +
+                                      (candidates.Count == 1 ? $" (it matches '{candidates[0].Id}': run --assign-kits)." : "."));
+                    continue;
+                }
+
+                Models.Catalog.KitDefinition? kit = approved.FindKit(device.KitId);
+                if (kit == null)
+                {
+                    report.Errors.Add($"Device '{device.DeviceName}': kit '{device.KitId}' is not in the approved catalog v{approved.Version}.");
+                    continue;
+                }
+
+                foreach (string diff in KitMatcher.Compare(doc, device, kit))
+                    report.Errors.Add($"Device '{device.DeviceName}' (kit {kit.Id}): {diff}.");
+            }
+
             return report;
         }
 

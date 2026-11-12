@@ -60,7 +60,7 @@ namespace TiaOpennessApp.Services
                         Identifier = S(r, 5),
                     }));
 
-                Query(db, "SELECT device_name, group_name, type_key, firmware, comment FROM devices ORDER BY rowid;", r =>
+                Query(db, "SELECT device_name, group_name, type_key, firmware, comment, kit_id FROM devices ORDER BY rowid;", r =>
                     doc.Devices.Add(new DeviceSpec
                     {
                         DeviceName = S(r, 0),
@@ -68,6 +68,7 @@ namespace TiaOpennessApp.Services
                         TypeKey = S(r, 2),
                         Firmware = N(r, 3),
                         Comment = N(r, 4),
+                        KitId = N(r, 5),
                     }));
 
                 Query(db, "SELECT name, subnet_type FROM subnets ORDER BY rowid;", r =>

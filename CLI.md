@@ -57,6 +57,7 @@ dotnet run -- <command> [arguments...]
 | `--catalog-source-init` | (Administrador) Crea la base de dades font del catàleg (tipus + kits) |
 | `--kit-from-device` | (Administrador) Crea un kit a partir d'un dispositiu d'un projecte |
 | `--kit-list` | Mostra els kits d'una base de dades font o d'un catàleg aprovat |
+| `--assign-kits` | Enllaça els dispositius d'un `project.db` amb els seus kits aprovats |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -383,7 +384,7 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --export-cax-project | --import-db | --db-to-csv | --db-info |
 --catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db |
 --generate-project-db | --create-project | --catalog-source-init | --kit-from-device |
---kit-list
+--kit-list | --assign-kits
 ```
 
 ---
@@ -583,9 +584,10 @@ els tipus aprovats i els **kits**. `--catalog-publish` la signa i la publica com
 
 ```
 TiaOpennessApp --catalog-source-init <catalogSource.db> [catalogCsv]
-TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device> <kitId> [--name="..."] [--no-tags]
+TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device[,device...]> <kitId> [--name="..."] [--no-tags] [--modular]
 TiaOpennessApp --kit-list <catalogSource.db|approvedCatalogRoot>
 TiaOpennessApp --catalog-publish <catalogSource.db> <shareRoot> <version> <privateKey> [extraFilesDir]
+TiaOpennessApp --assign-kits <project.db> <approvedCatalogRoot>
 ```
 
 | Ordre | Què fa |
@@ -593,9 +595,25 @@ TiaOpennessApp --catalog-publish <catalogSource.db> <shareRoot> <version> <priva
 | `--catalog-source-init` | Crea (o obre) la base de dades font i hi afegeix/actualitza els tipus d'un `Catalog.csv`. |
 | `--kit-from-device` | Crea un kit a partir d'un dispositiu d'un projecte: tipus i firmware, mòduls i slots, interfícies (subxarxa i IO system, sense IP ni nom PROFINET), longitud de les adreces I/Q i, si no s'indica `--no-tags`, els seus I/O tags com a plantilles. El nom del dispositiu es canvia per `{DEVICE}` (p. ex. `ETH05_1` → `{DEVICE}_1`). Avisa si hi ha tags sense el nom del dispositiu (es repetirien a cada còpia). |
 | `--kit-list` | Mostra els kits de la base de dades font o del catàleg aprovat publicat. |
+| `--assign-kits` | Enllaça cada dispositiu d'un `project.db` amb el kit aprovat que li correspon (si en coincideix exactament un). Per als que no, en mostra el motiu o les diferències amb el kit més proper. |
+
+**Dos tipus de kit:**
+
+- **Fix** (p. ex. variador SEW, robot, CPU): totes les còpies són idèntiques.
+- **Modular** (`--modular`, p. ex. estacions ET200SP, passarel·les SEW UFR): el kit fixa el
+  capçal (mòduls sense slot o al slot 0, interfície, subxarxa, IO system) i llista els
+  **mòduls permesos**. Cada còpia pot portar els mòduls que vulgui d'aquesta llista. Amb
+  diversos dispositius d'exemple (`ETH03,ETH04,ETH05`) s'hi recullen tots els tipus que fan
+  servir.
 
 Un kit fixa la **longitud** de cada rang I/Q; l'adreça d'inici de cada còpia és la
 primera lliure de l'IO system. Els blocs de programa encara no formen part dels kits.
+
+**Comprovació d'aprovació amb kits:** si el catàleg té kits, cada dispositiu ha d'estar
+enllaçat a un kit aprovat (columna `KitId` de `Devices.csv` / `devices.kit_id`) i coincidir-hi
+en els camps bloquejats: tipus, firmware, mòduls i slots, interfícies (subxarxa i IO system) i
+longitud dels rangs I/Q. La IP, el nom PROFINET, les adreces d'inici i els tags són lliures.
+`--create-project` fa l'enllaç automàticament.
 
 ---
 

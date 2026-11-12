@@ -260,9 +260,9 @@ namespace TiaOpennessApp.Services
             string file = Path.GetFileName(path);
 
             using (var command = CreateCommand(connection, transaction,
-                "INSERT OR REPLACE INTO devices (device_name, group_name, type_key, firmware, comment) VALUES (@device_name, @group_name, @type_key, @firmware, @comment);"))
+                "INSERT OR REPLACE INTO devices (device_name, group_name, type_key, firmware, comment, kit_id) VALUES (@device_name, @group_name, @type_key, @firmware, @comment, @kit_id);"))
             {
-                AddParameter(command, "@device_name", "@group_name", "@type_key", "@firmware", "@comment");
+                AddParameter(command, "@device_name", "@group_name", "@type_key", "@firmware", "@comment", "@kit_id");
 
                 foreach (Row row in ReadRows(path))
                 {
@@ -287,6 +287,7 @@ namespace TiaOpennessApp.Services
                     SetParameter(command, "@type_key", typeKey);
                     SetParameter(command, "@firmware", row.Get("Firmware"));
                     SetParameter(command, "@comment", row.Get("Comment"));
+                    SetParameter(command, "@kit_id", row.Get("KitId"));
                     Insert(command, path, row);
                 }
             }

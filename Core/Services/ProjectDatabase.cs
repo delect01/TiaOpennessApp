@@ -15,12 +15,13 @@ namespace TiaOpennessApp.Services
     /// v1: catalog, devices, subnets, modules, interfaces, module_addresses, io_tags (+ triggers/views).
     /// v2: project_info (key/value), blocks (Blocks.csv manifest), unique IP and PROFINET name per
     ///     subnet, unique I/O tag name per PLC.
+    /// v3: devices.kit_id (approved kit the device was created from; no FK, kits live in the catalog).
     /// module_addresses keeps a text link to the module: GSD submodules (e.g. MC120/UM1_PD) are not
     /// rows of the modules table, so a foreign key is not possible; the validator checks it instead.
     /// </remarks>
     public static class ProjectDatabase
     {
-        public const int CurrentSchemaVersion = 2;
+        public const int CurrentSchemaVersion = 3;
 
         /// <summary>Tables in dependency order (parents first).</summary>
         public static readonly string[] TableNames =
@@ -108,6 +109,8 @@ namespace TiaOpennessApp.Services
                 Step(connection, 1, SchemaV1);
             if (version < 2)
                 Step(connection, 2, MigrateV1ToV2);
+            if (version < 3)
+                Step(connection, 3, MigrateV2ToV3);
         }
 
         public static string? GetInfo(SqliteConnection connection, string key) =>
@@ -486,6 +489,11 @@ CREATE UNIQUE INDEX ux_interfaces_subnet_pn_name
 CREATE UNIQUE INDEX ux_io_tags_device_name
     ON io_tags(device, name)
     WHERE name IS NOT NULL AND name <> '';
+";
+
+        private const string MigrateV2ToV3 = @"
+ALTER TABLE devices ADD COLUMN kit_id TEXT;
+CREATE INDEX idx_devices_kit ON devices(kit_id);
 ";
     }
 }

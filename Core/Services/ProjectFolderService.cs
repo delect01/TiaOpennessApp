@@ -16,6 +16,7 @@ namespace TiaOpennessApp.Services
         public int CopiedFiles { get; set; }
         public List<string> MissingSourceFiles { get; } = new List<string>();
         public ApprovalReport? Approval { get; set; }
+        public KitAssignmentResult? KitAssignment { get; set; }
         public List<string> Errors { get; } = new List<string>();
         public List<string> Warnings { get; } = new List<string>();
         public bool Success => Errors.Count == 0;
@@ -101,6 +102,10 @@ namespace TiaOpennessApp.Services
                 // 4) Optional: approval against the signed catalog; record its version when approved.
                 if (approvedCatalog != null)
                 {
+                    // Link each device to the approved kit it is a copy of (before the approval check).
+                    if (approvedCatalog.Kits.Count > 0)
+                        result.KitAssignment = KitMatcher.AssignKits(result.DatabasePath, approvedCatalog.Kits);
+
                     var reader = new DbGenerationReader(result.DatabasePath);
                     GenerationParseResult doc = reader.Read();
                     result.Approval = ApprovalService.Check(doc.Document, reader.ProjectCatalog, approvedCatalog, null);

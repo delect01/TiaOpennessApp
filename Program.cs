@@ -451,6 +451,34 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--assign-kits")
+            {
+                string? keyPath = args.FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))?.Substring("--public-key=".Length);
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                if (positional.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --assign-kits <project.db> <approvedCatalogRoot> [--public-key=<file>]");
+                    return;
+                }
+
+                try
+                {
+                    CatalogKey? trusted = keyPath == null ? null : CatalogKey.Load(keyPath).PublicOnly();
+                    ApprovedCatalog catalogForKits = ApprovedCatalog.Load(positional[1], trusted);
+                    using (ProjectDatabase.Open(positional[0])) { } // upgrade to the current schema (kit_id)
+                    Console.WriteLine($"Approved catalog v{catalogForKits.Version}: {catalogForKits.Kits.Count} kit(s)");
+                    KitAssignmentResult assignment = KitMatcher.AssignKits(positional[0], catalogForKits.Kits);
+                    PrintKitAssignment(assignment);
+                    Environment.ExitCode = assignment.NotMatched.Count == 0 ? 0 : 1;
+                }
+                catch (Exception ex) when (ex is IOException || ex is InvalidDataException || ex is InvalidOperationException)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
+
             if (command == "--create-project")
             {
                 string? keyPath = args.Skip(1).FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))
@@ -486,6 +514,8 @@ namespace TiaOpennessApp
                 Console.WriteLine($"  source files copied  {created.CopiedFiles,8}");
                 foreach (string missing in created.MissingSourceFiles.Take(20))
                     Console.WriteLine($"  MISSING {missing}");
+                if (created.KitAssignment != null)
+                    PrintKitAssignment(created.KitAssignment);
                 if (created.Approval != null)
                 {
                     foreach (string error in created.Approval.Errors)
@@ -922,10 +952,11 @@ namespace TiaOpennessApp
             {
                 string? kitName = args.FirstOrDefault(a => a.StartsWith("--name=", StringComparison.OrdinalIgnoreCase))?.Substring("--name=".Length);
                 bool noTags = args.Any(a => string.Equals(a, "--no-tags", StringComparison.OrdinalIgnoreCase));
+                bool modular = args.Any(a => string.Equals(a, "--modular", StringComparison.OrdinalIgnoreCase));
                 string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
                 if (positional.Length < 4)
                 {
-                    Console.WriteLine("Usage: TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device> <kitId> [--name=\"...\"] [--no-tags]");
+                    Console.WriteLine("Usage: TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device[,device...]> <kitId> [--name=\"...\"] [--no-tags] [--modular]");
                     return;
                 }
 
@@ -939,7 +970,9 @@ namespace TiaOpennessApp
                 KitFromDeviceResult derived;
                 try
                 {
-                    derived = KitService.FromDevice(kitSource.Document, positional[2], positional[3], kitName, includeTags: !noTags);
+                    derived = KitService.FromDevices(kitSource.Document,
+                        positional[2].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(d => d.Trim()).ToList(),
+                        positional[3], kitName, includeTags: !noTags, modular: modular);
                 }
                 catch (ArgumentException ex)
                 {
@@ -1145,7 +1178,7 @@ namespace TiaOpennessApp
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
                               "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
                               "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db | --create-project | " +
-                              "--catalog-source-init | --kit-from-device | --kit-list");
+                              "--catalog-source-init | --kit-from-device | --kit-list | --assign-kits");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)
@@ -1583,6 +1616,16 @@ namespace TiaOpennessApp
             return cloneReport.Cloned.Count > 0 ? patched : goldenAml;
         }
 
+        private static void PrintKitAssignment(KitAssignmentResult assignment)
+        {
+            Console.WriteLine($"  Kits: {assignment.Assigned.Count} device(s) linked now, " +
+                              $"{assignment.AlreadyLinked.Count} already linked, {assignment.NotMatched.Count} without kit.");
+            foreach (var pair in assignment.Assigned.OrderBy(p => p.Key))
+                Console.WriteLine($"    {pair.Key,-14} → {pair.Value}");
+            foreach (var pair in assignment.NotMatched.OrderBy(p => p.Key))
+                Console.WriteLine($"    {pair.Key,-14} NO KIT: {pair.Value}");
+        }
+
         private static void PrintKit(KitDefinition kit)
         {
             Console.WriteLine($"\nKit {kit.Id} - {kit.Name}");
@@ -1597,6 +1640,10 @@ namespace TiaOpennessApp
                 Console.WriteLine($"  tag       {t.TagTable}/{t.Name} {t.DataType} {t.IoType}+{t.BitOffset / 8}.{t.BitOffset % 8} in {t.ModuleName}");
             if (kit.Tags.Count > 10)
                 Console.WriteLine($"  ... {kit.Tags.Count - 10} more tag template(s)");
+            foreach (KitModuleOption o in kit.AllowedModules)
+                Console.WriteLine($"  allowed   {o.Name,-28} {(o.TypeKey.Length > 0 ? "type " + o.TypeKey : "GSD")}  " +
+                                  string.Join(", ", o.Addresses.Select(a => $"{a.IoType}{a.LengthBits}")) +
+                                  (o.MaxCount != null ? $"  max {o.MaxCount}" : string.Empty));
         }
 
         private sealed class PreparedProjectDb

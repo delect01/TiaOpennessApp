@@ -333,8 +333,18 @@ Steps:
       Verified: SEW kit from UM6A_PR, Fanuc kit from ROBOT1 (warns about 2 tags without the device
       name), ET200SP layout from ETH05 (`{DEVICE}_1`...); published as v2 and listed; v1 packages
       still load (0 kits).
-- [ ] E1.2 Project schema v3 (`devices.kit_id`); kit detection when creating a project from an
+- [x] E1.2 Project schema v3 (`devices.kit_id`); kit detection when creating a project from an
       export; approval check: every device belongs to an approved kit and its locked fields match.
+      Done 2026-11-12. Decision taken while testing: **modular kits** (head kit + approved
+      modules) for stations whose layout differs per copy (ET200SP, SEW UFR gateway); fixed kits
+      for identical devices (SEW drive, robot, CPU). `KitModuleOption` = allowed module by catalog
+      type or, for GSD submodules, by I/Q layout (`{MODULE}` placeholder), optional slot range and
+      max count. `KitMatcher` compares only locked fields (type, firmware, modules/slots,
+      interfaces subnet + IO system, I/Q lengths) — IP, PROFINET name, start addresses and tags
+      are free. `--kit-from-device` takes several devices + `--modular`; `--assign-kits`;
+      `--create-project` links kits automatically; `KitId` column in Devices.csv.
+      Verified: 6 kits derived from the real project, all 17 devices linked and approved (v4);
+      refused: unknown kit, module type not allowed, other firmware, other I/Q length.
 - [ ] E1.3 Kit instancing in Core: add a kit copy to `project.db` (name, IP, PROFINET name) with
       next-free I/Q addresses and tags from templates (used by the editor in E2).
 - [ ] E1.4 `TiaCatalogAdmin` (WPF): types, kits, templates/block library list, publish.

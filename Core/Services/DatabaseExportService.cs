@@ -66,6 +66,7 @@ namespace TiaOpennessApp.Services
                 using (var connection = new SqliteConnection($"Data Source={resolvedDbPath};Mode=ReadOnly"))
                 {
                     connection.Open();
+                    bool hasKitId = ProjectDatabase.GetSchemaVersion(connection) >= 3;
 
                     result.FileCounts.Add(new DbFileCount
                     {
@@ -73,9 +74,16 @@ namespace TiaOpennessApp.Services
                         Count = WriteFile(connection,
                             Path.Combine(resolvedOutputDir, "Devices.csv"),
                             withBom: true,
-                            header: new[] { "DeviceName", "Group", "TypeKey", "Firmware", "Comment" },
-                            sql: "SELECT device_name, group_name, type_key, firmware, comment FROM devices ORDER BY rowid;",
-                            map: r => new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4) }),
+                            // Schema v3+: KitId column (approved kit of each device).
+                            header: hasKitId
+                                ? new[] { "DeviceName", "Group", "TypeKey", "Firmware", "Comment", "KitId" }
+                                : new[] { "DeviceName", "Group", "TypeKey", "Firmware", "Comment" },
+                            sql: hasKitId
+                                ? "SELECT device_name, group_name, type_key, firmware, comment, kit_id FROM devices ORDER BY rowid;"
+                                : "SELECT device_name, group_name, type_key, firmware, comment FROM devices ORDER BY rowid;",
+                            map: r => hasKitId
+                                ? new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5) }
+                                : new[] { Text(r, 0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4) }),
                     });
 
                     result.FileCounts.Add(new DbFileCount

@@ -67,6 +67,7 @@ namespace TiaOpennessApp.Services
                 TypeKey = GetString(header, getter, GenerationColumns.TypeKey) ?? string.Empty,
                 Firmware = GetString(header, getter, GenerationColumns.Firmware),
                 Comment = GetString(header, getter, GenerationColumns.Comment),
+                KitId = GetString(header, getter, GenerationColumns.KitId),
             };
 
             Require(spec.DeviceName, GenerationColumns.DeviceName, header, source, row, addIssue);
