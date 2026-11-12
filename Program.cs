@@ -19,6 +19,7 @@ using Siemens.Engineering.HW.Features;
 using Siemens.Engineering.SW;
 using Siemens.Engineering.SW.Blocks;
 using TiaOpennessApp.Models;
+using TiaOpennessApp.Models.Catalog;
 using TiaOpennessApp.Models.Database;
 using TiaOpennessApp.Models.Generation;
 using TiaOpennessApp.Services;
@@ -896,6 +897,113 @@ namespace TiaOpennessApp
                 return;
             }
 
+            if (command == "--catalog-source-init")
+            {
+                if (args.Length < 2)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --catalog-source-init <catalogSource.db> [catalogCsv]");
+                    return;
+                }
+
+                using (var source = CatalogDatabase.Open(args[1], create: true))
+                {
+                    if (args.Length >= 3)
+                    {
+                        var (added, updated) = CatalogDatabase.UpsertTypes(source, CatalogService.Load(args[2]));
+                        Console.WriteLine($"Types from {args[2]}: {added} added, {updated} updated.");
+                    }
+                    Console.WriteLine($"Catalog source: {Path.GetFullPath(args[1])}");
+                    Console.WriteLine($"  types {CatalogDatabase.LoadTypes(source).Count}, kits {CatalogDatabase.LoadKits(source).Count}");
+                }
+                return;
+            }
+
+            if (command == "--kit-from-device")
+            {
+                string? kitName = args.FirstOrDefault(a => a.StartsWith("--name=", StringComparison.OrdinalIgnoreCase))?.Substring("--name=".Length);
+                bool noTags = args.Any(a => string.Equals(a, "--no-tags", StringComparison.OrdinalIgnoreCase));
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                if (positional.Length < 4)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device> <kitId> [--name=\"...\"] [--no-tags]");
+                    return;
+                }
+
+                GenerationParseResult kitSource = positional[1].EndsWith(".db", StringComparison.OrdinalIgnoreCase)
+                    ? new DbGenerationReader(positional[1]).Read()
+                    : ReadCsvDocs(positional[1]);
+                PrintIssues(kitSource.Issues);
+                if (kitSource.HasErrors)
+                    return;
+
+                KitFromDeviceResult derived;
+                try
+                {
+                    derived = KitService.FromDevice(kitSource.Document, positional[2], positional[3], kitName, includeTags: !noTags);
+                }
+                catch (ArgumentException ex)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                    Environment.ExitCode = 1;
+                    return;
+                }
+
+                PrintKit(derived.Kit);
+                foreach (string warning in derived.Warnings)
+                    Console.WriteLine($"  WARN: {warning}");
+
+                try
+                {
+                    using var source = CatalogDatabase.Open(positional[0]);
+                    CatalogDatabase.SaveKit(source, derived.Kit);
+                    Console.WriteLine($"Kit '{derived.Kit.Id}' saved in {Path.GetFullPath(positional[0])}.");
+                }
+                catch (Exception ex) when (ex is InvalidDataException || ex is IOException)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
+
+            if (command == "--kit-list")
+            {
+                string? keyPath = args.FirstOrDefault(a => a.StartsWith("--public-key=", StringComparison.OrdinalIgnoreCase))?.Substring("--public-key=".Length);
+                string[] positional = args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
+                if (positional.Length < 1)
+                {
+                    Console.WriteLine("Usage: TiaOpennessApp --kit-list <catalogSource.db|approvedCatalogRoot> [--public-key=<file>]");
+                    return;
+                }
+
+                List<KitDefinition> kits;
+                if (positional[0].EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                {
+                    using var source = CatalogDatabase.Open(positional[0]);
+                    kits = CatalogDatabase.LoadKits(source);
+                    Console.WriteLine($"Catalog source {Path.GetFullPath(positional[0])}: {CatalogDatabase.LoadTypes(source).Count} types, {kits.Count} kits");
+                }
+                else
+                {
+                    try
+                    {
+                        CatalogKey? trusted = keyPath == null ? null : CatalogKey.Load(keyPath).PublicOnly();
+                        ApprovedCatalog approvedList = ApprovedCatalog.Load(positional[0], trusted);
+                        kits = approvedList.Kits;
+                        Console.WriteLine($"Approved catalog v{approvedList.Version}: {approvedList.Types.Count} types, {kits.Count} kits");
+                    }
+                    catch (Exception ex) when (ex is IOException || ex is InvalidDataException)
+                    {
+                        Console.WriteLine($"ERROR: {ex.Message}");
+                        Environment.ExitCode = 1;
+                        return;
+                    }
+                }
+                foreach (KitDefinition kit in kits)
+                    PrintKit(kit);
+                return;
+            }
+
             if (command == "--catalog-keygen")
             {
                 if (args.Length < 2)
@@ -938,10 +1046,21 @@ namespace TiaOpennessApp
                 string packageDir;
                 try
                 {
-                    types = CatalogService.Load(args[1]);
                     privateKey = CatalogKey.Load(args[4]);
-                    packageDir = ApprovedCatalog.Publish(types, args[3], args[2], privateKey,
-                        publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+                    if (args[1].EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Catalog source database (types + kits) maintained by the administrator.
+                        using (var source = CatalogDatabase.Open(args[1]))
+                            types = CatalogDatabase.LoadTypes(source);
+                        packageDir = ApprovedCatalog.PublishFromSource(args[1], args[3], args[2], privateKey,
+                            publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+                    }
+                    else
+                    {
+                        types = CatalogService.Load(args[1]);
+                        packageDir = ApprovedCatalog.Publish(types, args[3], args[2], privateKey,
+                            publisher: Environment.UserName, extraFilesDir: args.Length >= 6 ? args[5] : null);
+                    }
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException
                                            || ex is ArgumentException || ex is InvalidOperationException
@@ -1025,7 +1144,8 @@ namespace TiaOpennessApp
                               "--plug-diagnose | --export-docs | --dump-subnets | --dump-interfaces | --dump-tags | " +
                               "--export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items | " +
                               "--export-cax-project | --import-db | --db-to-csv | --db-info | " +
-                              "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db | --create-project");
+                              "--catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db | --generate-project-db | --create-project | " +
+                              "--catalog-source-init | --kit-from-device | --kit-list");
         }
 
         private static GenerationParseResult ReadCsvDocs(string docsDir, bool hardwareOptional = false)
@@ -1461,6 +1581,22 @@ namespace TiaOpennessApp
             foreach (string error in cloneReport.Errors)
                 Console.WriteLine($"  (avís) GSD no afegit al golden: {error}");
             return cloneReport.Cloned.Count > 0 ? patched : goldenAml;
+        }
+
+        private static void PrintKit(KitDefinition kit)
+        {
+            Console.WriteLine($"\nKit {kit.Id} - {kit.Name}");
+            Console.WriteLine($"  device type {kit.DeviceTypeKey}  firmware {kit.Firmware}  comment '{kit.DeviceComment}'");
+            foreach (KitModule m in kit.Modules)
+                Console.WriteLine($"  module    {m.ModuleName,-28} slot {(m.Slot?.ToString() ?? "-"),-3} {m.TypeKey}");
+            foreach (KitInterface i in kit.Interfaces)
+                Console.WriteLine($"  interface {i.InterfaceItem,-28} subnet {i.Subnet}  IO system '{i.MasterIoSystem}'");
+            foreach (KitAddress a in kit.Addresses)
+                Console.WriteLine($"  address   {a.ModuleName}/{a.SubModuleName} {a.IoType} {a.LengthBits} bits ({(a.LengthBits + 7) / 8} bytes), start = next free");
+            foreach (KitTag t in kit.Tags.Take(10))
+                Console.WriteLine($"  tag       {t.TagTable}/{t.Name} {t.DataType} {t.IoType}+{t.BitOffset / 8}.{t.BitOffset % 8} in {t.ModuleName}");
+            if (kit.Tags.Count > 10)
+                Console.WriteLine($"  ... {kit.Tags.Count - 10} more tag template(s)");
         }
 
         private sealed class PreparedProjectDb

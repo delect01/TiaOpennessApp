@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using TiaOpennessApp.Models.Catalog;
 using TiaOpennessApp.Models.Generation;
 
 namespace TiaOpennessApp.Services
@@ -192,28 +193,67 @@ namespace TiaOpennessApp.Services
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         };
 
-        private ApprovedCatalog(CatalogManifest manifest, string packageDir, List<CatalogEntry> types)
+        private ApprovedCatalog(CatalogManifest manifest, string packageDir, List<CatalogEntry> types, List<KitDefinition> kits)
         {
             Manifest = manifest;
             PackageDir = packageDir;
             Types = types;
+            Kits = kits;
         }
 
         public CatalogManifest Manifest { get; }
         public string PackageDir { get; }
         public string Version => Manifest.CatalogVersion;
         public List<CatalogEntry> Types { get; }
+        public List<KitDefinition> Kits { get; }
+
+        public KitDefinition? FindKit(string? kitId) =>
+            string.IsNullOrWhiteSpace(kitId)
+                ? null
+                : Kits.FirstOrDefault(k => string.Equals(k.Id, kitId, StringComparison.OrdinalIgnoreCase));
 
         // ------------------------------------------------------------------ publish (admin)
 
-        /// <summary>
-        /// Creates a signed package <c>shareRoot\catalog-v{version}</c> from the approved types and
-        /// the contents of <paramref name="extraFilesDir"/> (templates, blocks), then points
-        /// <c>current.txt</c> at it. An existing version is never overwritten.
-        /// </summary>
+        /// <summary>Publishes only types (no kits), e.g. straight from Catalog.csv.</summary>
         public static string Publish(IReadOnlyList<CatalogEntry> types, string version, string shareRoot,
             CatalogKey privateKey, string publisher, string? extraFilesDir = null, bool makeCurrent = true)
         {
+            string source = Path.Combine(Path.GetTempPath(), $"tia_catalog_source_{Guid.NewGuid():N}.db");
+            try
+            {
+                using (SqliteConnection db = CatalogDatabase.Open(source, create: true))
+                    CatalogDatabase.UpsertTypes(db, types);
+                return PublishFromSource(source, version, shareRoot, privateKey, publisher, extraFilesDir, makeCurrent);
+            }
+            finally
+            {
+                try { File.Delete(source); } catch { /* best effort */ }
+            }
+        }
+
+        /// <summary>
+        /// Creates a signed package <c>shareRoot\catalog-v{version}</c> from the administrator's catalog
+        /// source database (types + kits) and the contents of <paramref name="extraFilesDir"/>
+        /// (templates, blocks), then points <c>current.txt</c> at it. An existing version is never overwritten.
+        /// </summary>
+        public static string PublishFromSource(string sourceDb, string version, string shareRoot,
+            CatalogKey privateKey, string publisher, string? extraFilesDir = null, bool makeCurrent = true)
+        {
+            if (!File.Exists(sourceDb))
+                throw new FileNotFoundException($"Catalog source database not found: {sourceDb}", sourceDb);
+            using (SqliteConnection check = CatalogDatabase.Open(sourceDb))
+            {
+                // Re-validate every kit against the types being published.
+                List<CatalogEntry> sourceTypes = CatalogDatabase.LoadTypes(check);
+                var invalid = CatalogDatabase.LoadKits(check)
+                    .Select(k => (k.Id, Errors: CatalogDatabase.ValidateKit(k, sourceTypes)))
+                    .Where(k => k.Errors.Count > 0)
+                    .ToList();
+                if (invalid.Count > 0)
+                    throw new InvalidDataException("Kits not valid: " +
+                        string.Join("; ", invalid.Select(k => $"{k.Id}: {string.Join(", ", k.Errors)}")));
+            }
+
             if (!IsValidVersion(version))
                 throw new ArgumentException($"Invalid catalog version '{version}' (letters, digits, '.', '-', '_').");
             if (!privateKey.HasPrivateKey)
@@ -242,7 +282,14 @@ namespace TiaOpennessApp.Services
                 if (!string.IsNullOrWhiteSpace(extraFilesDir))
                     CopyDirectory(extraFilesDir!, staging);
 
-                WriteDatabase(Path.Combine(staging, DatabaseFileName), types, version, publisher);
+                string packagedDb = Path.Combine(staging, DatabaseFileName);
+                File.Copy(sourceDb, packagedDb);
+                using (SqliteConnection packaged = CatalogDatabase.Open(packagedDb))
+                {
+                    CatalogDatabase.SetInfo(packaged, "catalog_version", version);
+                    CatalogDatabase.SetInfo(packaged, "publisher", publisher);
+                    CatalogDatabase.SetInfo(packaged, "published_utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+                }
 
                 var manifest = new CatalogManifest
                 {
@@ -327,8 +374,9 @@ namespace TiaOpennessApp.Services
             try
             {
                 File.WriteAllBytes(temp, databaseBytes);
-                List<CatalogEntry> types = ReadTypes(temp);
-                return new ApprovedCatalog(result.Manifest!, result.PackageDir, types);
+                using (SqliteConnection db = CatalogDatabase.OpenReadOnly(temp))
+                    return new ApprovedCatalog(result.Manifest!, result.PackageDir,
+                        CatalogDatabase.LoadTypes(db), CatalogDatabase.LoadKits(db));
             }
             finally
             {
@@ -438,89 +486,6 @@ namespace TiaOpennessApp.Services
         }
 
         // ------------------------------------------------------------------ catalog.db
-
-        private static void WriteDatabase(string path, IReadOnlyList<CatalogEntry> types, string version, string publisher)
-        {
-            using (var connection = new SqliteConnection($"Data Source={path};Pooling=False"))
-            {
-                connection.Open();
-                using (SqliteTransaction transaction = connection.BeginTransaction())
-                using (SqliteCommand command = connection.CreateCommand())
-                {
-                    command.Transaction = transaction;
-                    command.CommandText = @"
-CREATE TABLE catalog_info (key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE types (
-    type_key    TEXT PRIMARY KEY COLLATE NOCASE,
-    mlfb        TEXT,
-    tia_version TEXT,
-    description TEXT,
-    role        TEXT NOT NULL CHECK (role IN ('Root', 'Module')),
-    identifier  TEXT
-);
-PRAGMA user_version = 1;";
-                    command.ExecuteNonQuery();
-
-                    command.CommandText = "INSERT INTO catalog_info (key, value) VALUES (@k, @v);";
-                    command.Parameters.Add(new SqliteParameter("@k", string.Empty));
-                    command.Parameters.Add(new SqliteParameter("@v", string.Empty));
-                    foreach (var (k, v) in new[] { ("catalog_version", version), ("publisher", publisher) })
-                    {
-                        command.Parameters["@k"].Value = k;
-                        command.Parameters["@v"].Value = v;
-                        command.ExecuteNonQuery();
-                    }
-
-                    command.Parameters.Clear();
-                    command.CommandText = "INSERT INTO types (type_key, mlfb, tia_version, description, role, identifier) " +
-                                          "VALUES (@type_key, @mlfb, @tia_version, @description, @role, @identifier);";
-                    foreach (string p in new[] { "@type_key", "@mlfb", "@tia_version", "@description", "@role", "@identifier" })
-                        command.Parameters.Add(new SqliteParameter(p, DBNull.Value));
-                    foreach (CatalogEntry t in types)
-                    {
-                        command.Parameters["@type_key"].Value = t.TypeKey;
-                        command.Parameters["@mlfb"].Value = t.Mlfb;
-                        command.Parameters["@tia_version"].Value = t.TiaVersion;
-                        command.Parameters["@description"].Value = t.Description;
-                        command.Parameters["@role"].Value = t.Role.ToString();
-                        command.Parameters["@identifier"].Value = t.Identifier;
-                        command.ExecuteNonQuery();
-                    }
-                    transaction.Commit();
-                }
-            }
-        }
-
-        private static List<CatalogEntry> ReadTypes(string path)
-        {
-            var types = new List<CatalogEntry>();
-            using (var connection = new SqliteConnection($"Data Source={path};Mode=ReadOnly;Pooling=False"))
-            {
-                connection.Open();
-                using (SqliteCommand command = connection.CreateCommand())
-                {
-                    command.CommandText = "SELECT type_key, mlfb, tia_version, description, role, identifier FROM types ORDER BY type_key;";
-                    using (SqliteDataReader reader = command.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            types.Add(new CatalogEntry
-                            {
-                                TypeKey = reader.GetString(0),
-                                Mlfb = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                                TiaVersion = reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
-                                Description = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                                Role = string.Equals(reader.GetString(4), "Root", StringComparison.OrdinalIgnoreCase)
-                                    ? CatalogItemRole.Root
-                                    : CatalogItemRole.Module,
-                                Identifier = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
-                            });
-                        }
-                    }
-                }
-            }
-            return types;
-        }
 
         // ------------------------------------------------------------------ helpers
 

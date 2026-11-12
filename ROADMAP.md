@@ -309,12 +309,37 @@ be upgraded ("Upgrade to current catalog" with a change preview).
 - **Gate:** generate a TIA project from a `.db` from the console; a tampered `.db` or catalog is refused with clear reasons.
   **Status 2026-11-11:** refusals verified without TIA; generation from a CSV export with new GSD devices verified in TIA (option 3). Pending: one TIA run of `--generate-project-db` with the real signed catalog.
 
-#### E1 - `TiaCatalogAdmin`
-- [ ] Seed types from an existing project export.
-- [ ] Kit editor (device type, fixed modules/slots, address ranges, interfaces + subnet role, blocks).
-- [ ] Manage approved templates and block library.
-- [ ] Publish: sign, copy to share, update `current.txt`.
-- **Gate:** first signed catalog published; a kit for the Fanuc robot (`DIO 1024` ×3) defined.
+#### E1 - Kits + `TiaCatalogAdmin`
+
+Kit decisions (2026-11-12):
+
+| Topic | Decision |
+|---|---|
+| I/Q start address | **Automatic, next free** in the IO system; the kit fixes only the length per submodule |
+| Tags | **Tag templates** in the kit: names with `{DEVICE}`, address = offset inside a kit submodule; users may add more free tags (inside module ranges) |
+| Blocks | **Later** (after E1). When done: per-copy FB/DB from a template with `{DEVICE}`, the user chooses the zone folder |
+| First kit | **SEW MDX61B+DFE32B** (GSD, submodule `PD · 06 process data words`, I/Q 96 bits). Note: the program reaches the drive through the HW identifier `{DEVICE}~PD`, not I/O tags, so this kit has no tag templates |
+
+Steps:
+- [x] E1.1 Catalog database v2 with kits (device type + firmware, modules/slots, interfaces + subnet
+      role + IO system, submodule I/Q lengths, tag templates); admin **catalog source** database
+      published as the signed `catalog.db`; derive a kit from an example device of a project
+      (`--kit-from-device`); publish/verify read kits.
+      Done 2026-11-12: `Models\Catalog\KitDefinition.cs`, `CatalogDatabase` (schema v1 types → v2
+      `kits`, one JSON definition per kit, validated on save and again on publish), `KitService`
+      (derive from a device, `{DEVICE}` placeholder, tag address → bit offset in the submodule),
+      `ApprovedCatalog.PublishFromSource` + `Kits`/`FindKit`. CLI `--catalog-source-init`,
+      `--kit-from-device`, `--kit-list`; `--catalog-publish` accepts the source `.db`.
+      Verified: SEW kit from UM6A_PR, Fanuc kit from ROBOT1 (warns about 2 tags without the device
+      name), ET200SP layout from ETH05 (`{DEVICE}_1`...); published as v2 and listed; v1 packages
+      still load (0 kits).
+- [ ] E1.2 Project schema v3 (`devices.kit_id`); kit detection when creating a project from an
+      export; approval check: every device belongs to an approved kit and its locked fields match.
+- [ ] E1.3 Kit instancing in Core: add a kit copy to `project.db` (name, IP, PROFINET name) with
+      next-free I/Q addresses and tags from templates (used by the editor in E2).
+- [ ] E1.4 `TiaCatalogAdmin` (WPF): types, kits, templates/block library list, publish.
+- **Gate:** first real signed catalog with the SEW kit; a project with a new SEW drive added from
+  the kit passes the approval check and generates in TIA.
 
 #### E2 - Editor: hardware
 - [ ] New project (choose approved template) / open / import exports / export CSV.

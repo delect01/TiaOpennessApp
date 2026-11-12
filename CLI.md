@@ -54,6 +54,9 @@ dotnet run -- <command> [arguments...]
 | `--check-project-db` | Comprova un `project.db` contra el catàleg aprovat i el valida, sense TIA |
 | `--generate-project-db` | Genera el projecte TIA des d'un `project.db` aprovat i vàlid |
 | `--create-project` | Crea una carpeta de projecte (`project.db` + `blocks\`, `types\`, `tags\`) a partir d'una exportació |
+| `--catalog-source-init` | (Administrador) Crea la base de dades font del catàleg (tipus + kits) |
+| `--kit-from-device` | (Administrador) Crea un kit a partir d'un dispositiu d'un projecte |
+| `--kit-list` | Mostra els kits d'una base de dades font o d'un catàleg aprovat |
 
 > **Golden AML**: es pot obtenir amb `--export-cax-project` o automàticament des del projecte obert al menú
 > interactiu (vegeu §8.1). El camí manual es persisteix a `Import:GoldenAmlPath`.
@@ -379,7 +382,8 @@ Supported: --gen-catalog-from-export | --generate-template | --csv-to-xlsx |
 --export-blocks | --generate-blocks | --dump-blocks | --dump-hw-items |
 --export-cax-project | --import-db | --db-to-csv | --db-info |
 --catalog-keygen | --catalog-publish | --catalog-verify | --check-project-db |
---generate-project-db | --create-project
+--generate-project-db | --create-project | --catalog-source-init | --kit-from-device |
+--kit-list
 ```
 
 ---
@@ -568,6 +572,30 @@ TiaOpennessApp --create-project <exportsDir> <projectFolder> [approvedCatalogRoo
 - Si la importació falla, no deixa cap carpeta a mitges.
 
 Després: `--generate-project-db <projectFolder>\project.db <approvedCatalogRoot> …`.
+
+---
+
+## 20f. Kits: `--catalog-source-init`, `--kit-from-device`, `--kit-list`
+
+L'administrador manté una **base de dades font del catàleg** (`catalog-source.db`) amb
+els tipus aprovats i els **kits**. `--catalog-publish` la signa i la publica com a
+`catalog.db` d'una nova versió.
+
+```
+TiaOpennessApp --catalog-source-init <catalogSource.db> [catalogCsv]
+TiaOpennessApp --kit-from-device <catalogSource.db> <exportsDir|project.db> <device> <kitId> [--name="..."] [--no-tags]
+TiaOpennessApp --kit-list <catalogSource.db|approvedCatalogRoot>
+TiaOpennessApp --catalog-publish <catalogSource.db> <shareRoot> <version> <privateKey> [extraFilesDir]
+```
+
+| Ordre | Què fa |
+|-------|--------|
+| `--catalog-source-init` | Crea (o obre) la base de dades font i hi afegeix/actualitza els tipus d'un `Catalog.csv`. |
+| `--kit-from-device` | Crea un kit a partir d'un dispositiu d'un projecte: tipus i firmware, mòduls i slots, interfícies (subxarxa i IO system, sense IP ni nom PROFINET), longitud de les adreces I/Q i, si no s'indica `--no-tags`, els seus I/O tags com a plantilles. El nom del dispositiu es canvia per `{DEVICE}` (p. ex. `ETH05_1` → `{DEVICE}_1`). Avisa si hi ha tags sense el nom del dispositiu (es repetirien a cada còpia). |
+| `--kit-list` | Mostra els kits de la base de dades font o del catàleg aprovat publicat. |
+
+Un kit fixa la **longitud** de cada rang I/Q; l'adreça d'inici de cada còpia és la
+primera lliure de l'IO system. Els blocs de programa encara no formen part dels kits.
 
 ---
 
